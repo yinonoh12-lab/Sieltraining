@@ -80,7 +80,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 </section>
 
 <section id="coach" class="page">
-<h1>AI Coach</h1><div class="card"><div class="chat" id="chat"></div><div class="chatbar"><input id="chatInput" onkeydown="if(event.key==='Enter')sendChat()" placeholder="למשל: נשארו לי 700 קלוריות, מה לאכול?"><button class="btn primary" onclick="sendChat()">שלח</button></div></div>
+<h1>AI Coach</h1><div class="card"><div class="muted" style="margin-bottom:10px">כתוב מה התקציב שלך, למשל: "מה לאכול ב־700 קלוריות" — ותקבל כמויות קצרות וברורות.</div><div class="chat" id="chat"></div><div class="chatbar"><input id="chatInput" onkeydown="if(event.key==='Enter')sendChat()" placeholder="למשל: נשארו לי 700 קלוריות, מה לאכול?"><button class="btn primary" onclick="sendChat()">שלח</button></div></div>
 </section>
 
 <section id="progress" class="page">
@@ -364,10 +364,52 @@ async function testGemini(){
 }
 function renderChat(){$('chat').innerHTML=state.chat.map(m=>`<div class="msg ${m.who}">${m.text}</div>`).join('');$('chat').scrollTop=99999;}
 async function sendChat(){
- let q=$('chatInput').value.trim();if(!q)return;
- state.chat.push({who:'user',text:q});save();renderChat();$('chatInput').value='';
- const loading={who:'ai',text:'חושב...'};state.chat.push(loading);renderChat();
- const ans=await callGemini(q);state.chat[state.chat.length-1].text=ans;save();renderChat();
+ let q=$('chatInput').value.trim(); if(!q)return;
+ if(!state.geminiKey){
+   $('chat').innerHTML='<div class="msg ai">שמור קודם את מפתח Gemini בפרופיל.</div>';
+   return;
+ }
+
+ const match=q.match(/(\d{2,4})\s*קלוריות/);
+ $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">🤖 מחשב...</div>';
+
+ let prompt;
+ let maxTokens=350;
+
+ if(match){
+   const calories=Math.round(+match[1]);
+   prompt=`ענה בעברית בלבד.
+המשתמש רוצה הצעת אוכל של כ-${calories} קלוריות.
+החזר רק 2-4 שורות:
+• מאכל + כמות בגרמים/יחידות
+• מאכל + כמות בגרמים/יחידות
+• מאכל + כמות בגרמים/יחידות
+סה"כ כ-${calories} קלוריות.
+בלי הקדמה, בלי הסברים, בלי שאלות ובלי שיחה.`;
+ }else{
+   prompt=`ענה בעברית בקצרה ובישירות על הבקשה הבאה. בלי הקדמה ובלי שיחה מיותרת:
+${q}`;
+ }
+
+ const key=state.geminiKey;
+ try{
+   const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
+     method:'POST',
+     headers:{'Content-Type':'application/json'},
+     body:JSON.stringify({
+       contents:[{parts:[{text:prompt}]}],
+       generationConfig:{maxOutputTokens:maxTokens}
+     })
+   });
+   const d=await r.json();
+   const ans=r.ok?(d.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('')||'לא התקבלה תשובה.'):'שגיאת Gemini: '+(d.error?.message||r.status);
+   $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+ans.replace(/\n/g,'<br>')+'</div>';
+   state.chat=[{who:'user',text:q},{who:'ai',text:ans}];
+   save();
+ }catch(e){
+   $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">לא הצלחתי להתחבר ל-Gemini.</div>';
+ }
+ $('chatInput').value='';
 }
 function updateApp(){
  const u=new URL(location.href);
