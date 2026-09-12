@@ -317,18 +317,56 @@ function updateUserButton(){
   const b=$('currentUserBtn'); if(b)b.textContent='👤 '+activeUser;
   const f=$('floatingUserSwitch'); if(f)f.textContent='👤 החלף: '+activeUser;
 }
-function openUserModal(){renderUserList();$('userModal').style.display='flex';$('newUserName').value='';}
+function openUserModal(){renderUserList();installUserListHandlers();$('userModal').style.display='flex';$('newUserName').value='';}
 function closeUserModal(){$('userModal').style.display='none';}
+document.addEventListener('DOMContentLoaded',installUserListHandlers);
 function renderUserList(){
   const box=$('userList');if(!box)return;
   box.innerHTML=Object.keys(accounts).map(n=>`
     <div style="display:flex;gap:6px;align-items:center;margin:6px 0">
-      <button type="button" class="btn ${n===activeUser?'primary':'secondary'}" style="flex:1;text-align:right" onclick="switchUser(${JSON.stringify(n)});return false;">
+      <button type="button" class="btn ${n===activeUser?'primary':'secondary'} cc-user-choice"
+        data-user="${encodeURIComponent(n)}" style="flex:1;text-align:right;touch-action:manipulation">
         👤 ${n}${n===activeUser?' ✓':''}
       </button>
-      <button class="btn dangerBtn" title="מחק משתמש" onclick="deleteUser(${JSON.stringify(n)})">🗑️</button>
+      <button type="button" class="btn dangerBtn cc-user-delete"
+        data-user="${encodeURIComponent(n)}" title="מחק משתמש">🗑️</button>
     </div>`).join('');
   updateUserButton();
+}
+
+function installUserListHandlers(){
+  const box=$('userList');
+  if(!box || box.dataset.handlersInstalled==='1') return;
+  box.dataset.handlersInstalled='1';
+
+  // Event delegation avoids inline onclick problems and survives list re-renders.
+  box.addEventListener('click', function(ev){
+    const choice=ev.target.closest('.cc-user-choice');
+    if(choice){
+      ev.preventDefault();
+      ev.stopPropagation();
+      const n=decodeURIComponent(choice.dataset.user||'');
+      switchUser(n);
+      return;
+    }
+    const del=ev.target.closest('.cc-user-delete');
+    if(del){
+      ev.preventDefault();
+      ev.stopPropagation();
+      const n=decodeURIComponent(del.dataset.user||'');
+      deleteUser(n);
+    }
+  });
+
+  // iPhone Safari can cancel a click if the DOM is refreshed during a touch.
+  // pointerup provides a reliable fallback for the user-selection button.
+  box.addEventListener('pointerup', function(ev){
+    const choice=ev.target.closest('.cc-user-choice');
+    if(!choice) return;
+    ev.preventDefault();
+    const n=decodeURIComponent(choice.dataset.user||'');
+    if(n && n!==activeUser) switchUser(n);
+  }, {passive:false});
 }
 async function refreshUserListFromCloud(){
   if(!window.firebaseUser || !window.firebaseDb){
@@ -399,7 +437,7 @@ let userSwitchToken = 0;
 function switchUser(n){
   n=String(n||'').trim();
   if(!n || !accounts[n]){
-    alert('המשתמש "'+n+'" לא נמצא במכשיר הזה. לחץ "בדוק עכשיו" כדי לסנכרן את רשימת המשתמשים.');
+    alert('המשתמש "'+n+'" לא נמצא במכשיר הזה. לחץ "רענן משתמשים מהענן" ואז נסה שוב.');
     return false;
   }
 
