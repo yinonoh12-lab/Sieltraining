@@ -21,30 +21,11 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 @media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}header{align-items:flex-start;gap:10px;flex-direction:column}}@media(max-width:520px){.app{padding:10px}.grid{grid-template-columns:1fr 1fr}.card{padding:14px}.big{font-size:32px}}
 </style>
 </head>
-
 <body>
-
-<div id="userModal" style="display:none;position:fixed;inset:0;background:#0008;z-index:10000;padding:20px;align-items:center;justify-content:center;overflow:auto">
-<div class="card" style="width:min(440px,100%);margin:auto">
-<h2>👤 החלפת משתמש</h2>
-<div class="muted" style="margin-bottom:12px">בחר משתמש כדי להיכנס אליו. לאחר הבחירה האפליקציה תטען את כל הנתונים שלו — כולל הפרופיל, יומן האוכל, המשקל, התפריט ושיחות ה־AI.</div>
-<div id="userList"></div>
-<div class="actions" style="margin-top:10px">
-  <button type="button" class="btn secondary" onclick="refreshUserListFromCloud();return false;">🔄 רענן משתמשים מהענן</button>
-</div>
-<div class="field" style="margin-top:12px"><label>שם משתמש חדש</label><input id="newUserName" placeholder="למשל: דניאל"></div>
-<div class="actions"><button class="btn primary" onclick="createUser()">צור משתמש</button><button class="btn secondary" onclick="closeUserModal()">סגור</button></div>
-<div class="notice">המשתמשים משותפים בין המכשירים דרך הענן. בלי סיסמה, כל מי שיש לו גישה לאפליקציה יכול לבחור משתמש אחר.</div>
-
-</div></div>
-
-</div>
-
 <div class="app">
-<header><div class="brand">Cut<span>Coach</span> 🥗</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn secondary" id="updateBtn" onclick="updateApp()">🔄 עדכון</button><button class="btn primary" id="currentUserBtn" type="button" onclick="openUserModal();return false;">👤 משתמש</button>
-<nav id="nav">
+<header><div class="brand">Cut<span>Coach</span> 🥗</div><nav id="nav">
 <button class="active" data-page="home">היום</button><button data-page="log">יומן אוכל</button><button data-page="menu">התפריט שלי</button><button data-page="progress">מעקב שבועי</button><button data-page="coach">AI Coach</button><button data-page="profile">הפרופיל</button>
-</nav></div></header>
+</nav></header>
 
 <section id="home" class="page active">
 <div class="hero"><div class="muted">היעד היומי שלך</div><div class="big" id="heroCal">0 / 0 kcal</div><div id="heroRemain">הגדר פרופיל כדי להתחיל</div></div>
@@ -117,14 +98,11 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 <div class="grid"><div class="field"><label>משקל יעד</label><input id="target" type="number"></div><div class="field"><label>פעילות</label><select id="activity"><option value="1.2">מעט/יושבני</option><option value="1.375">קלה</option><option value="1.55">בינונית</option><option value="1.725">גבוהה</option><option value="1.9">גבוהה מאוד</option></select></div></div>
 <div class="field"><label>קצב ירידה רצוי (ק"ג בשבוע)</label><select id="rate"><option value=".25">0.25</option><option value=".5" selected>0.5</option><option value=".75">0.75</option><option value="1">1.0</option></select></div>
 <button class="btn primary" onclick="saveProfile()">שמור וחישב יעד</button></div>
-<div class="card"><h2>☁️ סנכרון נתונים</h2>
-<div class="muted" style="margin-bottom:10px">הנתונים נשמרים אוטומטית בענן לפי שם המשתמש ומסתנכרנים בין כל המכשירים.</div>
-<div id="cloudStatus" class="muted">☁️ מתחבר לענן...</div>
-<div class="notice">אין צורך ללחוץ על שמירה או להתחבר. הסנכרון מתבצע אוטומטית.</div>
-</div>
-  <div class="actions" style="margin-top:10px">
-    <button class="btn secondary" onclick="runFirebaseDiagnostics()">🔍 בדוק עכשיו</button>
-  </div>
+<div class="card"><h2>☁️ שמירת נתונים בענן</h2>
+<div class="muted" style="margin-bottom:10px">הנתונים יכולים להסתנכרן בין מכשירים דרך Firebase.</div>
+<div id="cloudStatus" class="muted" style="margin-bottom:10px">בודק חיבור...</div>
+<div class="actions"><button class="btn primary" onclick="cloudLogin()">התחבר/סנכרן</button><button class="btn secondary" onclick="syncCloud()">שמור עכשיו</button><button class="btn dangerBtn" onclick="cloudLogout()">התנתק</button></div>
+<div class="notice">כדי שהכפתור יעבוד, יש להפעיל Firebase Authentication → Anonymous בפרויקט שלך.</div>
 </div>
 <div class="card"><h2>🤖 חיבור ל-Gemini</h2>
 <div class="muted" style="margin-bottom:10px">לשימוש אישי אפשר להדביק כאן את המפתח שלך. הוא נשמר בדפדפן במכשיר הזה.</div>
@@ -137,97 +115,79 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, deleteDoc } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
-const firebaseConfig={apiKey:"AIzaSyCEshB7ALH3-7DHG64YjUGMB5o3V1jfwiU",authDomain:"siel-f080c.firebaseapp.com",projectId:"siel-f080c",storageBucket:"siel-f080c.firebasestorage.app",messagingSenderId:"801630511187",appId:"1:801630511187:web:573125bd0e7df870a726a6",measurementId:"G-LR9T20ED3P"};
-const app=initializeApp(firebaseConfig);
-window.fbAuth=getAuth(app); window.firebaseDb=getFirestore(app); window.firebaseReady=true; window.firebaseUser=null; window.cloudProfilesUnsub=null;
-window.firebaseFns={doc,setDoc,getDoc,collection,onSnapshot,deleteDoc,signInAnonymously};
-let authRetryTimer=null;
-function startCloudSync(){
-  if(window.cloudProfilesUnsub)window.cloudProfilesUnsub();
-  window.cloudProfilesUnsub=onSnapshot(collection(window.firebaseDb,'cutcoach_profiles'),snap=>{
-    snap.docChanges().forEach(change=>{
-      const d=change.doc.data(), name=d.userName||change.doc.id; if(!name)return;
-      if(change.type==='removed'){
-        delete accounts[name];
-        if(activeUser===name){const next=Object.keys(accounts)[0];if(next){activeUser=next;state=accounts[next];localStorage.setItem('cutcoach_active_user',activeUser);renderAll();}}
-      }else{
-        const cloud={...DEFAULT_STATE(),...d}; delete cloud.userName; delete cloud.updatedAt; normalizeObjectState(cloud); accounts[name]=cloud;
-        if(name===activeUser){state=cloud;normalizeState();renderAll();}
+import { getAuth, onAuthStateChanged, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCEshB7ALH3-7DHG64YjUGMB5o3V1jfwiU",
+  authDomain: "siel-f080c.firebaseapp.com",
+  projectId: "siel-f080c",
+  storageBucket: "siel-f080c.firebasestorage.app",
+  messagingSenderId: "801630511187",
+  appId: "1:801630511187:web:573125bd0e7df870a726a6",
+  measurementId: "G-LR9T20ED3P"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+window.fbAuth = getAuth(fbApp);
+window.fbDb = getFirestore(fbApp);
+window.firebaseReady = true;
+window.firebaseFns = {doc,setDoc,getDoc,signInAnonymously,signOut};
+window.firebaseUser = null;
+
+onAuthStateChanged(window.fbAuth, async (user) => {
+  window.firebaseUser = user;
+  if (user) {
+    try {
+      const snap = await getDoc(doc(window.fbDb, "users", user.uid));
+      if (snap.exists()) {
+        const cloud = snap.data();
+        if (cloud.profile) state.profile = cloud.profile;
+        if (Array.isArray(cloud.foods)) state.foods = cloud.foods;
+        if (Array.isArray(cloud.menu)) state.menu = cloud.menu;
+        if (Array.isArray(cloud.chat)) state.chat = cloud.chat;
+        save();
+        renderHome(); renderProfile(); renderLog(); if(state.menu.length) renderMenu(); renderChat();
       }
-    });
-    localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts)); updateUserButton(); renderUserList(); updateCloudStatus('☁️ מסונכרן — הנתונים מתעדכנים אוטומטית בכל המכשירים');
-  },err=>{console.error(err);updateCloudStatus('⚠️ הסנכרון נעצר זמנית — מנסה להתחבר מחדש');setTimeout(()=>{if(window.firebaseUser)startCloudSync();},3000);});
-}
-onAuthStateChanged(window.fbAuth,async user=>{
-  window.firebaseUser=user;
-  if(user){
-    if(authRetryTimer){clearTimeout(authRetryTimer);authRetryTimer=null;}
-    try{await loadCloudProfile(activeUser);startCloudSync();updateCloudStatus('☁️ מסונכרן — הנתונים נשמרים אוטומטית');}
-    catch(e){console.error(e);updateCloudStatus('⚠️ לא ניתן לטעון את הענן כרגע — מנסה שוב');setTimeout(()=>{if(window.firebaseUser)startCloudSync();},3000);}
-  }else{
-    updateCloudStatus('☁️ מתחבר לענן...');
-    try{await signInAnonymously(window.fbAuth);}
-    catch(e){console.error(e);updateCloudStatus('⚠️ חיבור הענן נכשל — מנסה שוב אוטומטית');if(!authRetryTimer)authRetryTimer=setTimeout(()=>{authRetryTimer=null;signInAnonymously(window.fbAuth).catch(()=>{});},5000);}
+      updateCloudStatus("☁️ מסונכרן עם Firebase");
+    } catch(e) { updateCloudStatus("⚠️ Firebase מחובר, אך לא ניתן לקרוא את הנתונים. בדוק Firestore Rules."); }
+  } else {
+    updateCloudStatus("☁️ לא מחובר לענן");
   }
 });
 </script>
 <script>
-const LEGACY_KEY='cutcoach_v1';
-const ACCOUNTS_KEY='cutcoach_accounts_v1';
-const DEFAULT_STATE=()=>({profile:{},foods:[],menu:[],chat:[],savedMeals:[],weights:[]});
-let accounts=JSON.parse(localStorage.getItem(ACCOUNTS_KEY)||'null')||{};
-let activeUser=localStorage.getItem('cutcoach_active_user')||'';
-if(!Object.keys(accounts).length){
-  const legacy=JSON.parse(localStorage.getItem(LEGACY_KEY)||'null');
-  activeUser='המשתמש שלי'; accounts[activeUser]=legacy||DEFAULT_STATE();
-  localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));
-  localStorage.setItem('cutcoach_active_user',activeUser);
-}
-if(!accounts[activeUser]) activeUser=Object.keys(accounts)[0];
-let state=accounts[activeUser]||DEFAULT_STATE();
+const KEY='cutcoach_v1';
+let state=JSON.parse(localStorage.getItem(KEY)||'null')||{profile:{},foods:[],menu:[],chat:[],savedMeals:[],weights:[]};
 state.savedMeals=state.savedMeals||[]; state.weights=state.weights||[];
 const $=id=>document.getElementById(id);
 let cloudTimer;
-function normalizeState(){state=state||DEFAULT_STATE();state.profile=state.profile||{};state.foods=Array.isArray(state.foods)?state.foods:[];state.menu=Array.isArray(state.menu)?state.menu:[];state.chat=Array.isArray(state.chat)?state.chat:[];state.savedMeals=Array.isArray(state.savedMeals)?state.savedMeals:[];state.weights=Array.isArray(state.weights)?state.weights:[];}
 function save(){
-  normalizeState(); accounts[activeUser]=state; localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts)); localStorage.setItem('cutcoach_active_user',activeUser);
-  updateUserButton();
+  localStorage.setItem(KEY,JSON.stringify(state));
   clearTimeout(cloudTimer); cloudTimer=setTimeout(syncCloud,700);
 }
-function profileDocId(name){return String(name||'user').trim().replace(/[\/]/g,'-').slice(0,120)||'user';}
-const CLOUD_COLLECTION='cutcoach_profiles';
-async function writeCloudProfile(name,profileState){
-  if(!window.firebaseUser||!window.firebaseDb)return false;
-  const clean={...DEFAULT_STATE(),...profileState};normalizeObjectState(clean);
-  const {doc,setDoc}=window.firebaseFns;
-  await setDoc(doc(window.firebaseDb,CLOUD_COLLECTION,profileDocId(name)),{profile:clean.profile,foods:clean.foods,menu:clean.menu,chat:clean.chat,savedMeals:clean.savedMeals,weights:clean.weights,userName:name,updatedAt:new Date().toISOString()});
-  return true;
+async function syncCloud(){
+  if(!window.firebaseUser||!window.firebaseDb)return;
+  try{
+    const {doc,setDoc}=window.firebaseFns;
+    await setDoc(doc(window.firebaseDb,"users",window.firebaseUser.uid),{
+      profile:state.profile, foods:state.foods, menu:state.menu, chat:state.chat,
+      updatedAt:new Date().toISOString()
+    },{merge:true});
+    updateCloudStatus("☁️ נשמר בענן");
+  }catch(e){updateCloudStatus("⚠️ לא ניתן לשמור כרגע בענן");}
 }
-async function loadCloudProfile(userName=activeUser){
-  if(!window.firebaseUser||!window.firebaseDb||!userName)return;
-  const {doc,getDoc}=window.firebaseFns; const snap=await getDoc(doc(window.firebaseDb,CLOUD_COLLECTION,profileDocId(userName)));
-  if(snap.exists()){
-    const d=snap.data(), loaded={...DEFAULT_STATE(),...d};delete loaded.userName;delete loaded.updatedAt;normalizeObjectState(loaded);accounts[userName]=loaded;localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));
-    if(activeUser===userName){state=loaded;normalizeState();renderAll();}
-  }else if(activeUser===userName){await writeCloudProfile(userName,state);}
-}
-function normalizeObjectState(s){s.profile=s.profile||{};s.foods=Array.isArray(s.foods)?s.foods:[];s.menu=Array.isArray(s.menu)?s.menu:[];s.chat=Array.isArray(s.chat)?s.chat:[];s.savedMeals=Array.isArray(s.savedMeals)?s.savedMeals:[];s.weights=Array.isArray(s.weights)?s.weights:[];}
-async function syncCloud(){if(!window.firebaseUser||!window.firebaseDb)return;try{await writeCloudProfile(activeUser,state);updateCloudStatus('☁️ מסונכרן — נשמר בענן עבור '+activeUser);}catch(e){console.error(e);updateCloudStatus('⚠️ שמירה לענן נכשלה — תנסה שוב אוטומטית');}}
 function updateCloudStatus(t){const x=document.getElementById('cloudStatus');if(x)x.textContent=t;}
-function updateUserButton(){const b=$('currentUserBtn');if(b)b.textContent='👤 '+activeUser;}
-function openUserModal(){renderUserList();$('userModal').style.display='flex';$('newUserName').value='';}
-function closeUserModal(){$('userModal').style.display='none';}
-function renderUserList(){const box=$('userList');if(!box)return;box.innerHTML=Object.keys(accounts).map(n=>`<div style="display:flex;gap:6px;align-items:center;margin:6px 0"><button type="button" class="btn ${n===activeUser?'primary':'secondary'}" style="flex:1;text-align:right" onclick="switchUser(${JSON.stringify(n)});return false;">👤 ${n}${n===activeUser?' ✓':''}</button><button type="button" class="btn dangerBtn" title="מחק משתמש" onclick="deleteUser(${JSON.stringify(n)});return false;">🗑️</button></div>`).join('');updateUserButton();}
-let userSwitchToken=0;
-function switchUser(n){n=String(n||'').trim();if(!n||!accounts[n])return false;const token=++userSwitchToken;activeUser=n;state=accounts[n];normalizeState();localStorage.setItem('cutcoach_active_user',activeUser);localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));closeUserModal();updateUserButton();renderAll();if(window.firebaseUser)setTimeout(()=>{loadCloudProfile(n).then(()=>{if(token===userSwitchToken&&activeUser===n){updateUserButton();renderAll();}}).catch(console.error);},0);return false;}
-async function createUser(){const n=$('newUserName').value.trim();if(!n){alert('הזן שם משתמש.');return;}if(accounts[n]){alert('המשתמש הזה כבר קיים.');return;}accounts[n]=DEFAULT_STATE();localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));switchUser(n);if(window.firebaseUser){try{await writeCloudProfile(n,accounts[n]);}catch(e){console.error(e);}}}
-async function deleteUser(n){if(!accounts[n])return;const names=Object.keys(accounts);if(names.length<=1){alert('אי אפשר למחוק את המשתמש האחרון.');return;}if(!confirm('למחוק את המשתמש "'+n+'" ואת כל הנתונים שלו?'))return;delete accounts[n];localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));if(window.firebaseUser){try{await deleteDoc(window.firebaseFns.doc(window.firebaseDb,CLOUD_COLLECTION,profileDocId(n)));}catch(e){console.error(e);}}if(activeUser===n){activeUser=Object.keys(accounts)[0];state=accounts[activeUser];normalizeState();localStorage.setItem('cutcoach_active_user',activeUser);renderAll();}renderUserList();closeUserModal();}
+async function cloudLogin(){
+  try{
+    if(window.firebaseUser){ updateCloudStatus("☁️ כבר מחובר"); return; }
+    await window.firebaseFns.signInAnonymously(window.fbAuth);
+  }catch(e){ updateCloudStatus("⚠️ ב-Firebase הפעל Authentication → Sign-in method → Anonymous"); }
+}
+async function cloudLogout(){try{await window.firebaseFns.signOut(window.fbAuth);location.reload();}catch(e){}}
 
 function showPage(id){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));$(id).classList.add('active');document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('active',x.dataset.page===id));if(id==='home')renderHome();if(id==='log')renderLog();if(id==='menu'){if(!state.menu.length)generateMenu();else renderMenu()}if(id==='coach')renderChat();if(id==='profile')renderProfile();if(id==='progress')renderWeekly();}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
-updateUserButton();
 function calcProfile(p){if(!p.age||!p.height||!p.weight)return null;let bmr=10*p.weight+6.25*p.height-5*p.age+(p.gender==='male'?5:-161);let tdee=bmr*(+p.activity||1.55);let deficit=7700*(+p.rate||.5)/7;let cal=Math.max(1200,Math.round(tdee-deficit));let protein=Math.round(p.weight*1.8);let fat=Math.round((cal*.25)/9);let carb=Math.max(0,Math.round((cal-protein*4-fat*9)/4));return {bmr:Math.round(bmr),tdee:Math.round(tdee),cal,protein,fat,carb};}
 function saveProfile(){state.profile={gender:$('gender').value,age:+$('age').value,height:+$('height').value,weight:+$('weight').value,target:+$('target').value,activity:$('activity').value,rate:$('rate').value};save();renderProfile();generateMenu();renderHome();alert('הפרופיל נשמר והיעדים חושבו.');}
 function addWeeklyWeight(){
@@ -394,8 +354,5 @@ async function sendChat(){
 }
 renderHome();renderProfile();renderLog();renderSavedMeals();renderWeekly();if(state.menu.length)renderMenu();
 </script>
-<div style="max-width:1180px;margin:0 auto;padding:0 18px 22px;color:#7b8491;font-size:12px">מאגר מוצרים: Open Food Facts. הנתונים מוזנים על ידי הקהילה, ולכן יש לבדוק תווית מוצר כשדיוק חשוב.</div>
-
-
-</body>
+<div style="max-width:1180px;margin:0 auto;padding:0 18px 22px;color:#7b8491;font-size:12px">מאגר מוצרים: Open Food Facts. הנתונים מוזנים על ידי הקהילה, ולכן יש לבדוק תווית מוצר כשדיוק חשוב.</div></body>
 </html>
