@@ -267,7 +267,15 @@ function renderUserList(){
     </div>`).join('');
   updateUserButton();
 }
-function createUser(){const n=$('newUserName').value.trim();if(!n){alert('הזן שם משתמש.');return;}if(accounts[n]){alert('המשתמש הזה כבר קיים. בחר שם אחר או היכנס אליו.');return;}accounts[n]=DEFAULT_STATE();localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));switchUser(n);}
+function createUser(){
+  const n=$('newUserName').value.trim();
+  if(!n){alert('הזן שם משתמש.');return;}
+  if(accounts[n]){alert('המשתמש הזה כבר קיים. בחר שם אחר או היכנס אליו.');return;}
+  accounts[n]=DEFAULT_STATE();
+  localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));
+  switchUser(n);
+  setTimeout(()=>syncCloud(),300);
+}
 
 async function deleteUser(n){
   if(!accounts[n]) return;
@@ -309,18 +317,31 @@ async function deleteUser(n){
   closeUserModal();
 }
 
-async function switchUser(n){
-  if(!accounts[n])return;
+function switchUser(n){
+  if(!accounts[n]) return;
+
+  // Switch immediately on this device. Firebase must not block the UI.
   activeUser=n;
   state=accounts[n];
   normalizeState();
   localStorage.setItem('cutcoach_active_user',activeUser);
+
   closeUserModal();
+  updateUserButton();
   renderAll();
-  if(window.firebaseUser){
-    try{await loadCloudProfile(); updateUserButton(); renderAll();}
-    catch(e){updateCloudStatus('⚠️ לא ניתן לטעון את המשתמש מהענן');}
-  }else{save();}
+
+  // Load the shared copy in the background.
+  if(window.firebaseUser && window.firebaseDb){
+    loadCloudProfile().then(()=>{
+      updateUserButton();
+      renderAll();
+      renderUserList();
+    }).catch(()=>{
+      updateCloudStatus('⚠️ לא ניתן לטעון כרגע את נתוני המשתמש מהענן');
+    });
+  } else {
+    save();
+  }
 }
 
 async function syncCloud(){
