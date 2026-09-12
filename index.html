@@ -443,8 +443,8 @@ async function getMealPlanStructured(prompt){
    generationConfig:{
      maxOutputTokens:900,
      thinkingConfig:{thinkingLevel:'minimal'},
-     response_mime_type:'application/json',
-     response_schema:schema
+     responseMimeType:'application/json',
+     responseSchema:schema
    }
  };
 
@@ -563,10 +563,10 @@ async function sendChat(){
    console.error('CutCoach AI meal error:',e);
    const detail=String(e?.message||'').toLowerCase();
    let msg='לא הצלחתי ליצור הצעת כמויות תקינה.';
-   if(detail.includes('api key')||detail.includes('invalid')) msg='מפתח Gemini לא תקין או לא מורשה. בדוק את המפתח בפרופיל.';
-   else if(detail.includes('quota')||detail.includes('resource exhausted')) msg='מכסת Gemini הסתיימה כרגע. נסה שוב מאוחר יותר.';
-   else if(detail.includes('model')) msg='מודל Gemini לא זמין עבור המפתח הזה. בדוק את הגישה למודל.';
-   else msg+=' נסה שוב. ('+String(e?.message||'').slice(0,180)+')';
+   if(detail.includes('api key')||detail.includes('invalid api key')||detail.includes('api_key_invalid')||detail.includes('permission denied')) msg='מפתח Gemini לא תקין או לא מורשה. פתח את הפרופיל, הדבק מפתח Gemini חדש ובדוק חיבור.';
+   else if(detail.includes('quota')||detail.includes('resource exhausted')||detail.includes('rate limit')) msg='מכסת Gemini הסתיימה או שהגעת למגבלת קצב. נסה שוב מאוחר יותר.';
+   else if(detail.includes('model')||detail.includes('not found')) msg='מודל Gemini לא זמין עבור המפתח הזה. בדוק שהמפתח מורשה ל-Gemini API.';
+   else msg='Gemini החזיר שגיאה: '+String(e?.message||'שגיאה לא ידועה').slice(0,220);
    $('chat').innerHTML='<div class="msg user">'+escapeHtml(q)+'</div><div class="msg ai">'+nl2br(msg)+'</div>';
  }
  $('chatInput').value='';
