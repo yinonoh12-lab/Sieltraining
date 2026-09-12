@@ -378,49 +378,106 @@ async function sendChat(){
  const match=q.match(/(\d{2,4})\s*קלוריות/);
  $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">🤖 מחשב...</div>';
 
- let prompt;
- let maxTokens=350;
-
- if(match){
-   const requested=Math.round(+match[1]);
-   prompt=`המשתמש מבקש הצעת אוכל של כ-${requested} קלוריות.
-היום: יעד ${target} קלוריות, נצרכו ${consumed} קלוריות, ונשארו ${remaining} קלוריות לצרוך.
-החזר קצר בלבד:
-• 2-4 מאכלים, וליד כל אחד כמות + יחידת מידה ברורה (גרם/מ"ל/יחידה/פרוסה/חצי יחידה).
-• הקפד שהכמויות מתאימות בערך לבקשה.
-• בסוף כתוב בדיוק: "נשארו לך ${Math.max(0,remaining-requested)} קלוריות לצרוך היום."
-אין הקדמה, אין הסברים, אין שאלות ואין טקסט על "מאמן".
-דוגמה:
-• חזה עוף בתנור — 200 גרם
-• אבוקדו — חצי יחידה
-• אורז מבושל — 150 גרם
-סה"כ כ-${requested} קלוריות
-נשארו לך ${Math.max(0,remaining-requested)} קלוריות לצרוך היום.`;
- }else{
-   prompt=`ענה בעברית בקצרה ובישירות על הבקשה.
-יעד יומי: ${target} קלוריות. נצרכו היום: ${consumed}. נשארו: ${remaining}.
-אם הבקשה היא הצעת אוכל, ציין לכל מאכל כמות ויחידת מידה ברורה.
-בסוף, אם רלוונטי, ציין: "נשארו לך ${remaining} קלוריות לצרוך היום."
-בקשה: ${q}`;
- }
-
  const key=state.geminiKey;
+
  try{
-   const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
-     method:'POST',
-     headers:{'Content-Type':'application/json'},
-     body:JSON.stringify({
-       contents:[{parts:[{text:prompt}]}],
-       generationConfig:{maxOutputTokens:maxTokens}
-     })
-   });
-   const d=await r.json();
-   const ans=r.ok?(d.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('')||'לא התקבלה תשובה.'):'שגיאת Gemini: '+(d.error?.message||r.status);
-   $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+ans.replace(/\n/g,'<br>')+'</div>';
-   state.chat=[{who:'user',text:q},{who:'ai',text:ans}];
-   save();
+   let prompt;
+   let generationConfig={maxOutputTokens:300,temperature:0.2};
+
+   if(match){
+     const requested=Math.round(+match[1]);
+     const after=Math.max(0,remaining-requested);
+
+     if(requested>remaining){
+       const ans=`נשארו לך רק ${remaining} קלוריות לצרוך היום, לכן אי אפשר להכניס ארוחה של ${requested} קלוריות בלי לעבור את היעד.`;
+       $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+ans+'</div>';
+       state.chat=[{who:'user',text:q},{who:'ai',text:ans}];
+       save();
+       $('chatInput').value='';
+       return;
+     }
+
+     prompt=`המשתמש רוצה לאכול כ-${requested} קלוריות.
+אל תנהל שיחה ואל תסביר. בנה ארוחה של 2 עד 4 פריטי מזון.
+לכל פריט חובה להחזיר: שם המזון, כמות מספרית, יחידת מידה, וקלוריות משוערות.
+יחידת המידה חייבת להיות אחת מאלה: גרם, מ"ל, יחידה, חצי יחידה, פרוסה, מנה.
+הכמויות חייבות להיות מעשיות, והסכום הכולל של הקלוריות צריך להיות קרוב ככל האפשר ל-${requested}.
+העדף מזונות עשירים בחלבון כאשר אפשר.
+אין הקדמה ואין שאלות.`;
+
+     generationConfig.responseMimeType='application/json';
+     generationConfig.responseSchema={
+       type:'object',
+       properties:{
+         items:{
+           type:'array',
+           minItems:2,
+           maxItems:4,
+           items:{
+             type:'object',
+             properties:{
+               name:{type:'string'},
+               quantity:{type:'number'},
+               unit:{type:'string',enum:['גרם','מ"ל','יחידה','חצי יחידה','פרוסה','מנה']},
+               calories:{type:'integer'}
+             },
+             required:['name','quantity','unit','calories'],
+             additionalProperties:false
+           }
+         },
+         totalCalories:{type:'integer'}
+       },
+       required:['items','totalCalories'],
+       additionalProperties:false
+     };
+
+     const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
+       method:'POST',
+       headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig})
+     });
+     const d=await r.json();
+
+     if(!r.ok) throw new Error(d.error?.message||('HTTP '+r.status));
+
+     const raw=d.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('')||'';
+     let data;
+     try{ data=JSON.parse(raw); }catch(e){ throw new Error('Gemini לא החזיר פורמט תקין'); }
+
+     if(!Array.isArray(data.items)||data.items.length<2) throw new Error('Gemini החזיר פחות מדי פריטים');
+
+     const total=data.items.reduce((sum,x)=>sum+Math.max(0,Number(x.calories)||0),0);
+     const shownTotal=Math.round(total||data.totalCalories||requested);
+     const lines=data.items.map(x=>{
+       const qty=Number.isInteger(x.quantity)?x.quantity:x.quantity.toFixed(1).replace(/\.0$/,'');
+       return `• ${x.name} — ${qty} ${x.unit} · ${Math.max(0,Math.round(x.calories))} kcal`;
+     });
+     const ans=lines.join('\n')+`\n\nסה"כ כ-${shownTotal} קלוריות\nנשארו לך ${after} קלוריות לצרוך היום.`;
+
+     $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+ans.replace(/\n/g,'<br>')+'</div>';
+     state.chat=[{who:'user',text:q},{who:'ai',text:ans}];
+     save();
+   }else{
+     prompt=`ענה בעברית בקצרה ובישירות על הבקשה.
+יעד יומי: ${target} קלוריות. נצרכו היום: ${consumed}. נשארו: ${remaining}.
+אם זו בקשה להצעת אוכל, ציין כמויות ויחידות מידה ברורות.
+בקשה: ${q}`;
+
+     const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
+       method:'POST',
+       headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:300,temperature:0.2}})
+     });
+     const d=await r.json();
+     if(!r.ok) throw new Error(d.error?.message||('HTTP '+r.status));
+     const ans=d.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('')||'לא התקבלה תשובה.';
+     $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+ans.replace(/\n/g,'<br>')+'</div>';
+     state.chat=[{who:'user',text:q},{who:'ai',text:ans}];
+     save();
+   }
  }catch(e){
-   $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">לא הצלחתי להתחבר ל-Gemini.</div>';
+   const msg='לא הצלחתי ליצור הצעת כמויות תקינה. נסה שוב.';
+   $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+msg+'</div>';
  }
  $('chatInput').value='';
 }
