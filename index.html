@@ -370,6 +370,11 @@ async function sendChat(){
    return;
  }
 
+ const c=calcProfile(state.profile);
+ const t=totals();
+ const target=c?.cal||0;
+ const consumed=Math.round(t.cal);
+ const remaining=Math.max(0,target-consumed);
  const match=q.match(/(\d{2,4})\s*קלוריות/);
  $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">🤖 מחשב...</div>';
 
@@ -377,18 +382,26 @@ async function sendChat(){
  let maxTokens=350;
 
  if(match){
-   const calories=Math.round(+match[1]);
-   prompt=`ענה בעברית בלבד.
-המשתמש רוצה הצעת אוכל של כ-${calories} קלוריות.
-החזר רק 2-4 שורות:
-• מאכל + כמות בגרמים/יחידות
-• מאכל + כמות בגרמים/יחידות
-• מאכל + כמות בגרמים/יחידות
-סה"כ כ-${calories} קלוריות.
-בלי הקדמה, בלי הסברים, בלי שאלות ובלי שיחה.`;
+   const requested=Math.round(+match[1]);
+   prompt=`המשתמש מבקש הצעת אוכל של כ-${requested} קלוריות.
+היום: יעד ${target} קלוריות, נצרכו ${consumed} קלוריות, ונשארו ${remaining} קלוריות לצרוך.
+החזר קצר בלבד:
+• 2-4 מאכלים, וליד כל אחד כמות + יחידת מידה ברורה (גרם/מ"ל/יחידה/פרוסה/חצי יחידה).
+• הקפד שהכמויות מתאימות בערך לבקשה.
+• בסוף כתוב בדיוק: "נשארו לך ${Math.max(0,remaining-requested)} קלוריות לצרוך היום."
+אין הקדמה, אין הסברים, אין שאלות ואין טקסט על "מאמן".
+דוגמה:
+• חזה עוף בתנור — 200 גרם
+• אבוקדו — חצי יחידה
+• אורז מבושל — 150 גרם
+סה"כ כ-${requested} קלוריות
+נשארו לך ${Math.max(0,remaining-requested)} קלוריות לצרוך היום.`;
  }else{
-   prompt=`ענה בעברית בקצרה ובישירות על הבקשה הבאה. בלי הקדמה ובלי שיחה מיותרת:
-${q}`;
+   prompt=`ענה בעברית בקצרה ובישירות על הבקשה.
+יעד יומי: ${target} קלוריות. נצרכו היום: ${consumed}. נשארו: ${remaining}.
+אם הבקשה היא הצעת אוכל, ציין לכל מאכל כמות ויחידת מידה ברורה.
+בסוף, אם רלוונטי, ציין: "נשארו לך ${remaining} קלוריות לצרוך היום."
+בקשה: ${q}`;
  }
 
  const key=state.geminiKey;
