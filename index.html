@@ -25,9 +25,8 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 <body>
 <div id="userModal" style="display:none;position:fixed;inset:0;background:#0008;z-index:1000;padding:20px;align-items:center;justify-content:center">
 <div class="card" style="width:min(440px,100%);margin:auto">
-<h2>👤 בחירת משתמש</h2>
-<div class="muted" style="margin-bottom:12px">בחר משתמש כדי לעבור אליו. ליד כל משתמש אפשר למחוק אותו ואת הנתונים שלו.</div>
-<div style="margin-bottom:12px"><button class="btn secondary" style="width:100%" onclick="openAllUsersData()">📊 צפה בנתונים של כל המשתמשים</button></div>
+<h2>👤 החלפת משתמש</h2>
+<div class="muted" style="margin-bottom:12px">בחר משתמש כדי להיכנס אליו. לאחר הבחירה האפליקציה תטען את כל הנתונים שלו — כולל הפרופיל, יומן האוכל, המשקל, התפריט ושיחות ה־AI.</div>
 <div id="userList"></div>
 <div class="field" style="margin-top:12px"><label>שם משתמש חדש</label><input id="newUserName" placeholder="למשל: דניאל"></div>
 <div class="actions"><button class="btn primary" onclick="createUser()">צור משתמש</button><button class="btn secondary" onclick="closeUserModal()">סגור</button></div>
@@ -35,15 +34,6 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 
 </div></div>
 
-<div id="allUsersDataModal" style="display:none;position:fixed;inset:0;background:#0008;z-index:1100;padding:20px;align-items:center;justify-content:center;overflow:auto">
-  <div class="card" style="width:min(900px,100%);max-height:90vh;overflow:auto;margin:auto">
-    <div class="row" style="margin-bottom:12px">
-      <h2 style="margin:0">📊 נתוני כל המשתמשים</h2>
-      <button class="btn secondary" onclick="closeAllUsersData()">סגור</button>
-    </div>
-    <div class="muted" style="margin-bottom:14px">צפייה בלבד — מעבר לכרטיס משתמש לא משנה את המשתמש הפעיל.</div>
-    <div id="allUsersData"></div>
-  </div>
 </div>
 
 <div class="app">
@@ -124,10 +114,10 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 <div class="field"><label>קצב ירידה רצוי (ק"ג בשבוע)</label><select id="rate"><option value=".25">0.25</option><option value=".5" selected>0.5</option><option value=".75">0.75</option><option value="1">1.0</option></select></div>
 <button class="btn primary" onclick="saveProfile()">שמור וחישב יעד</button></div>
 <div class="card"><h2>☁️ שמירת נתונים בענן</h2>
-<div class="muted" style="margin-bottom:10px">הנתונים יכולים להסתנכרן בין מכשירים דרך Firebase.</div>
+<div class="muted" style="margin-bottom:10px">הנתונים נשמרים בענן לפי שם המשתמש ומשותפים בין כל המכשירים.</div>
 <div id="cloudStatus" class="muted" style="margin-bottom:10px">בודק חיבור...</div>
 <div class="actions"><button class="btn primary" onclick="cloudLogin()">התחבר/סנכרן</button><button class="btn secondary" onclick="syncCloud()">שמור עכשיו</button><button class="btn dangerBtn" onclick="cloudLogout()">התנתק</button></div>
-<div class="notice">כדי שהכפתור יעבוד, יש להפעיל Firebase Authentication → Anonymous בפרויקט שלך.</div>
+<div class="notice">האפליקציה מתחברת אוטומטית. ב-Firebase יש להפעיל Authentication → Sign-in method → Anonymous ולוודא שחוקי Firestore מאפשרים גישה לאוסף cutcoach_profiles.</div>
 </div>
 <div class="card"><h2>🤖 חיבור ל-Gemini</h2>
 <div class="muted" style="margin-bottom:10px">לשימוש אישי אפשר להדביק כאן את המפתח שלך. הוא נשמר בדפדפן במכשיר הזה.</div>
@@ -170,7 +160,12 @@ onAuthStateChanged(window.fbAuth, async (user) => {
       updateCloudStatus("☁️ מסונכרן עם Firebase — נתוני המשתמשים משותפים");
     } catch(e) { updateCloudStatus("⚠️ Firebase מחובר, אך לא ניתן לקרוא את נתוני המשתמש."); }
   } else {
-    updateCloudStatus("☁️ לא מחובר לענן");
+    updateCloudStatus("☁️ מתחבר לענן...");
+    try {
+      await signInAnonymously(window.fbAuth);
+    } catch(e) {
+      updateCloudStatus("⚠️ יש להפעיל Firebase Authentication → Anonymous");
+    }
   }
 });
 </script>
@@ -209,7 +204,10 @@ async function loadCloudProfile(){
     state={...DEFAULT_STATE(),...cloud}; normalizeState(); accounts[activeUser]=state;
     localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));
     renderAll();
-  } else if(state.profile && Object.keys(state.profile).length){ await syncCloud(); }
+  } else {
+    // Create the shared named profile so it immediately appears on other devices.
+    await syncCloud();
+  }
 }
 async function subscribeCloudProfiles(){
   if(!window.firebaseUser||!window.firebaseDb)return;
@@ -265,77 +263,11 @@ function renderUserList(){
       <button class="btn ${n===activeUser?'primary':'secondary'}" style="flex:1;text-align:right" onclick="switchUser(${JSON.stringify(n)})">
         👤 ${n}${n===activeUser?' ✓':''}
       </button>
-      <button class="btn secondary" title="צפה בנתונים" onclick="viewUserData(${JSON.stringify(n)})">📊</button>
       <button class="btn dangerBtn" title="מחק משתמש" onclick="deleteUser(${JSON.stringify(n)})">🗑️</button>
     </div>`).join('');
   updateUserButton();
 }
 function createUser(){const n=$('newUserName').value.trim();if(!n){alert('הזן שם משתמש.');return;}if(accounts[n]){alert('המשתמש הזה כבר קיים. בחר שם אחר או היכנס אליו.');return;}accounts[n]=DEFAULT_STATE();localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));switchUser(n);}
-
-function formatUserDate(v){
-  if(!v) return '—';
-  try{return new Date(v).toLocaleDateString('he-IL')}catch(e){return String(v)}
-}
-function userTotals(s){
-  const today=new Date().toISOString().slice(0,10);
-  const foods=(s.foods||[]).filter(f=>(f.date||'').slice(0,10)===today);
-  return {
-    calories: Math.round(foods.reduce((a,f)=>a+(+f.cal||0),0)),
-    protein: Math.round(foods.reduce((a,f)=>a+(+f.pro||0),0)),
-    carbs: Math.round(foods.reduce((a,f)=>a+(+f.carb||0),0)),
-    fat: Math.round(foods.reduce((a,f)=>a+(+f.fat||0),0)),
-    count: foods.length
-  };
-}
-function userLastWeight(s){
-  const w=Array.isArray(s.weights)?s.weights:[];
-  if(!w.length) return s.profile?.weight ? s.profile.weight : null;
-  return w[w.length-1].weight || w[w.length-1].value || null;
-}
-function buildUserDataCard(n,s){
-  s=s||DEFAULT_STATE();
-  const p=s.profile||{}, t=calcProfile(p), totals=userTotals(s), lw=userLastWeight(s);
-  const target=p.targetWeight||p.goalWeight||'—';
-  const rate=p.rate||'—';
-  const kcalTarget=t?.cal||p.calorieTarget||'—';
-  const foodsToday=(s.foods||[]).filter(f=>(f.date||'').slice(0,10)===new Date().toISOString().slice(0,10));
-  const foodNames=foodsToday.slice(-8).map(f=>`${f.name||'מזון'} (${Math.round(+f.cal||0)} kcal)`).join(' • ')||'לא הוזן אוכל היום';
-  const weights=(s.weights||[]).slice(-5).reverse().map(w=>`${formatUserDate(w.date)}: ${w.weight||w.value} ק״ג`).join(' • ')||'אין שקילות';
-  return `<div class="card" style="margin-bottom:12px;border:1px solid var(--line)">
-    <div class="row"><h3 style="font-size:19px">👤 ${String(n).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</h3>
-      <span class="pill">${n===activeUser?'משתמש פעיל':'משתמש'}</span></div>
-    <div class="grid" style="margin-top:10px">
-      <div><small class="muted">מין</small><br><b>${p.gender==='male'?'גבר':p.gender==='female'?'אישה':'—'}</b></div>
-      <div><small class="muted">גיל</small><br><b>${p.age||'—'}</b></div>
-      <div><small class="muted">גובה</small><br><b>${p.height?p.height+' ס״מ':'—'}</b></div>
-      <div><small class="muted">משקל נוכחי</small><br><b>${lw?lw+' ק״ג':'—'}</b></div>
-    </div>
-    <div class="grid" style="margin-top:10px">
-      <div><small class="muted">משקל יעד</small><br><b>${target}${target!=='—'?' ק״ג':''}</b></div>
-      <div><small class="muted">קצב ירידה</small><br><b>${rate}${rate!=='—'?' ק״ג/שבוע':''}</b></div>
-      <div><small class="muted">יעד קלורי</small><br><b>${kcalTarget}${kcalTarget!=='—'?' kcal':''}</b></div>
-      <div><small class="muted">אוכל היום</small><br><b>${totals.calories} kcal</b></div>
-    </div>
-    <div class="macro" style="margin-top:12px">
-      <span>חלבון: <b>${totals.protein}g</b></span>
-      <span>פחמימות: <b>${totals.carbs}g</b></span>
-      <span>שומן: <b>${totals.fat}g</b></span>
-    </div>
-    <div class="muted" style="margin-top:10px"><b>מה נאכל היום:</b> ${foodNames}</div>
-    <div class="muted" style="margin-top:7px"><b>שקילות אחרונות:</b> ${weights}</div>
-  </div>`;
-}
-function openAllUsersData(){
-  const box=$('allUsersData'); if(!box)return;
-  box.innerHTML=Object.keys(accounts).map(n=>buildUserDataCard(n,accounts[n])).join('');
-  $('allUsersDataModal').style.display='flex';
-}
-function closeAllUsersData(){$('allUsersDataModal').style.display='none';}
-function viewUserData(n){
-  const box=$('allUsersData'); if(!box)return;
-  box.innerHTML=buildUserDataCard(n,accounts[n]);
-  $('allUsersDataModal').style.display='flex';
-}
 
 async function deleteUser(n){
   if(!accounts[n]) return;
@@ -344,12 +276,24 @@ async function deleteUser(n){
     alert('אי אפשר למחוק את המשתמש האחרון. צור משתמש נוסף לפני המחיקה.');
     return;
   }
-  if(!confirm('למחוק את המשתמש "'+n+'" ואת כל הנתונים המקומיים שלו?')) return;
+  if(!confirm('למחוק את המשתמש "'+n+'" ואת כל הנתונים שלו?')) return;
 
+  // Delete from the local list immediately.
   delete accounts[n];
   localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));
 
-  // If this is the active user, immediately switch to another user.
+  // Delete the shared cloud profile as well.
+  if(window.firebaseUser && window.firebaseDb){
+    try{
+      const {doc,deleteDoc}=window.firebaseFns;
+      await deleteDoc(doc(window.firebaseDb,CLOUD_COLLECTION,profileDocId(n)));
+    }catch(e){
+      // Keep the local deletion, but tell the user if cloud deletion failed.
+      updateCloudStatus('⚠️ המשתמש נמחק מהמכשיר, אך המחיקה בענן נכשלה.');
+    }
+  }
+
+  // If the deleted user was active, move to another existing user.
   if(activeUser===n){
     const next=Object.keys(accounts)[0];
     activeUser=next;
@@ -358,22 +302,26 @@ async function deleteUser(n){
     localStorage.setItem('cutcoach_active_user',activeUser);
     renderAll();
     updateUserButton();
-
-    // Try to remove the cloud copy for this named profile as well.
-    if(window.firebaseUser && window.firebaseDb){
-      try{
-        const {doc,deleteDoc}=window.firebaseFns;
-        await deleteDoc(doc(window.firebaseDb,CLOUD_COLLECTION,profileDocId(n)));
-      }catch(e){}
-    }
-  } else {
-    renderUserList();
   }
+
+  renderUserList();
   save();
   closeUserModal();
 }
 
-async function switchUser(n){if(!accounts[n])return;activeUser=n;state=accounts[n];normalizeState();localStorage.setItem('cutcoach_active_user',activeUser);closeUserModal();renderAll();if(window.firebaseUser){try{await loadCloudProfile();}catch(e){updateCloudStatus('⚠️ לא ניתן לטעון את המשתמש מהענן');}}else{save();}}
+async function switchUser(n){
+  if(!accounts[n])return;
+  activeUser=n;
+  state=accounts[n];
+  normalizeState();
+  localStorage.setItem('cutcoach_active_user',activeUser);
+  closeUserModal();
+  renderAll();
+  if(window.firebaseUser){
+    try{await loadCloudProfile(); updateUserButton(); renderAll();}
+    catch(e){updateCloudStatus('⚠️ לא ניתן לטעון את המשתמש מהענן');}
+  }else{save();}
+}
 
 async function syncCloud(){
   if(!window.firebaseUser||!window.firebaseDb)return;
