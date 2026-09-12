@@ -23,11 +23,20 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 </head>
 
 <body>
-<div id="userModal" style="display:none;position:fixed;inset:0;background:#0008;z-index:1000;padding:20px;align-items:center;justify-content:center">
+<button id="floatingUserSwitch" type="button" onclick="openUserModal();return false;" style="
+position:fixed;right:14px;bottom:18px;z-index:999;
+border:0;border-radius:999px;padding:13px 17px;
+font-weight:800;font-size:15px;box-shadow:0 5px 20px #0003;
+background:#2563eb;color:#fff;cursor:pointer">👤 החלף משתמש</button>
+
+<div id="userModal" style="display:none;position:fixed;inset:0;background:#0008;z-index:10000;padding:20px;align-items:center;justify-content:center;overflow:auto">
 <div class="card" style="width:min(440px,100%);margin:auto">
 <h2>👤 החלפת משתמש</h2>
 <div class="muted" style="margin-bottom:12px">בחר משתמש כדי להיכנס אליו. לאחר הבחירה האפליקציה תטען את כל הנתונים שלו — כולל הפרופיל, יומן האוכל, המשקל, התפריט ושיחות ה־AI.</div>
 <div id="userList"></div>
+<div class="actions" style="margin-top:10px">
+  <button type="button" class="btn secondary" onclick="refreshUserListFromCloud();return false;">🔄 רענן משתמשים מהענן</button>
+</div>
 <div class="field" style="margin-top:12px"><label>שם משתמש חדש</label><input id="newUserName" placeholder="למשל: דניאל"></div>
 <div class="actions"><button class="btn primary" onclick="createUser()">צור משתמש</button><button class="btn secondary" onclick="closeUserModal()">סגור</button></div>
 <div class="notice">ההפרדה היא לפי שם במכשיר. בלי סיסמה, כל מי שיש לו גישה לאפליקציה יכול לבחור משתמש אחר.</div>
@@ -37,7 +46,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 </div>
 
 <div class="app">
-<header><div class="brand">Cut<span>Coach</span> 🥗</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn secondary" id="updateBtn" onclick="updateApp()">🔄 עדכון</button><button class="btn secondary" id="currentUserBtn" onclick="openUserModal()">👤 משתמש</button>
+<header><div class="brand">Cut<span>Coach</span> 🥗</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn secondary" id="updateBtn" onclick="updateApp()">🔄 עדכון</button><button class="btn primary" id="currentUserBtn" type="button" onclick="openUserModal();return false;">👤 משתמש</button>
 <nav id="nav">
 <button class="active" data-page="home">היום</button><button data-page="log">יומן אוכל</button><button data-page="menu">התפריט שלי</button><button data-page="progress">מעקב שבועי</button><button data-page="coach">AI Coach</button><button data-page="profile">הפרופיל</button>
 </nav></div></header>
@@ -304,20 +313,37 @@ async function updateApp(){
   }
 }
 function renderAll(){renderHome();renderProfile();renderLog();if(state.menu.length)renderMenu();renderChat();renderWeekly();}
-function updateUserButton(){const b=$('currentUserBtn');if(b)b.textContent='👤 '+activeUser;}
+function updateUserButton(){
+  const b=$('currentUserBtn'); if(b)b.textContent='👤 '+activeUser;
+  const f=$('floatingUserSwitch'); if(f)f.textContent='👤 החלף: '+activeUser;
+}
 function openUserModal(){renderUserList();$('userModal').style.display='flex';$('newUserName').value='';}
 function closeUserModal(){$('userModal').style.display='none';}
 function renderUserList(){
   const box=$('userList');if(!box)return;
   box.innerHTML=Object.keys(accounts).map(n=>`
     <div style="display:flex;gap:6px;align-items:center;margin:6px 0">
-      <button class="btn ${n===activeUser?'primary':'secondary'}" style="flex:1;text-align:right" onclick="switchUser(${JSON.stringify(n)})">
+      <button type="button" class="btn ${n===activeUser?'primary':'secondary'}" style="flex:1;text-align:right" onclick="switchUser(${JSON.stringify(n)});return false;">
         👤 ${n}${n===activeUser?' ✓':''}
       </button>
       <button class="btn dangerBtn" title="מחק משתמש" onclick="deleteUser(${JSON.stringify(n)})">🗑️</button>
     </div>`).join('');
   updateUserButton();
 }
+async function refreshUserListFromCloud(){
+  if(!window.firebaseUser || !window.firebaseDb){
+    alert('Firebase עדיין לא מחובר. בדוק את חיבור Firebase בהגדרות.');
+    return;
+  }
+  try{
+    await subscribeCloudProfiles();
+    renderUserList();
+    updateCloudStatus('☁️ רשימת המשתמשים עודכנה מהענן');
+  }catch(e){
+    alert('לא הצלחתי לרענן את רשימת המשתמשים: '+(e?.message||e));
+  }
+}
+
 function createUser(){
   const n=$('newUserName').value.trim();
   if(!n){alert('הזן שם משתמש.');return;}
@@ -371,36 +397,43 @@ async function deleteUser(n){
 let userSwitchToken = 0;
 
 function switchUser(n){
-  if(!accounts[n]) return;
+  n=String(n||'').trim();
+  if(!n || !accounts[n]){
+    alert('המשתמש "'+n+'" לא נמצא במכשיר הזה. לחץ "בדוק עכשיו" כדי לסנכרן את רשימת המשתמשים.');
+    return false;
+  }
 
-  const token = ++userSwitchToken;
-
-  // Switch locally FIRST so the interface changes immediately.
-  activeUser = n;
-  state = accounts[n];
+  userSwitchToken++;
+  activeUser=n;
+  state=accounts[n];
   normalizeState();
-  localStorage.setItem('cutcoach_active_user', activeUser);
+
+  localStorage.setItem('cutcoach_active_user',activeUser);
+  localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));
 
   closeUserModal();
   updateUserButton();
   renderAll();
 
-  // Then load this user's shared cloud data in the background.
+  // Cloud loading is deliberately non-blocking.
   if(window.firebaseUser && window.firebaseDb){
+    const token=userSwitchToken;
     loadCloudProfile(n).then(()=>{
-      // Ignore a late response if the user already switched again.
-      if(token !== userSwitchToken || activeUser !== n) return;
+      if(token!==userSwitchToken || activeUser!==n) return;
       updateUserButton();
       renderAll();
-    }).catch(()=>{
-      if(token === userSwitchToken){
-        updateCloudStatus('⚠️ לא ניתן לטעון כרגע את נתוני המשתמש מהענן');
+      updateCloudStatus('☁️ נטען מהענן עבור '+n);
+    }).catch(e=>{
+      if(token===userSwitchToken){
+        updateCloudStatus('⚠️ עבר למשתמש '+n+' מקומית, אבל טעינת הענן נכשלה');
+        console.error('switchUser cloud load failed:',e);
       }
     });
-  } else {
-    save();
   }
+
+  return false;
 }
+
 
 async function syncCloud(){
   if(!window.firebaseUser||!window.firebaseDb)return;
