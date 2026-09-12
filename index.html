@@ -21,6 +21,19 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 @media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}header{align-items:flex-start;gap:10px;flex-direction:column}}@media(max-width:520px){.app{padding:10px}.grid{grid-template-columns:1fr 1fr}.card{padding:14px}.big{font-size:32px}}
 </style>
 </head>
+
+<div id="userManager" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;padding:24px;overflow:auto;">
+  <div style="max-width:520px;margin:40px auto;background:#fff;color:#111;border-radius:20px;padding:22px;box-shadow:0 15px 50px rgba(0,0,0,.25);">
+    <h2 style="margin-top:0">👥 ניהול משתמשים</h2>
+    <div id="userList"></div>
+    <div style="display:flex;gap:10px;margin-top:18px;">
+      <input id="newUserName" type="text" placeholder="שם משתמש חדש" style="flex:1;padding:12px;border-radius:10px;border:1px solid #ccc;">
+      <button onclick="createUser()">➕ הוסף</button>
+    </div>
+    <button onclick="closeUserManager()" style="width:100%;margin-top:14px;">סגור</button>
+  </div>
+</div>
+
 <body>
 <div id="userModal" style="display:none;position:fixed;inset:0;background:#0008;z-index:1000;padding:20px;align-items:center;justify-content:center">
 <div class="card" style="width:min(440px,100%);margin:auto">
@@ -32,7 +45,8 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 <div class="notice">ההפרדה היא לפי שם במכשיר. בלי סיסמה, כל מי שיש לו גישה לאפליקציה יכול לבחור משתמש אחר.</div>
 </div></div>
 <div class="app">
-<header><div class="brand">Cut<span>Coach</span> 🥗</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn secondary" id="currentUserBtn" onclick="openUserModal()">👤 משתמש</button><nav id="nav">
+<header><div class="brand">Cut<span>Coach</span> 🥗</div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn secondary" id="currentUserBtn" onclick="openUserModal()">👤 משתמש</button><button onclick="openUserManager()" style="position:fixed;top:10px;left:10px;z-index:9998;border-radius:12px;padding:8px 12px">👥 משתמשים</button>
+<nav id="nav">
 <button class="active" data-page="home">היום</button><button data-page="log">יומן אוכל</button><button data-page="menu">התפריט שלי</button><button data-page="progress">מעקב שבועי</button><button data-page="coach">AI Coach</button><button data-page="profile">הפרופיל</button>
 </nav></div></header>
 
@@ -389,5 +403,89 @@ async function sendChat(){
 }
 renderHome();renderProfile();renderLog();renderSavedMeals();renderWeekly();if(state.menu.length)renderMenu();
 </script>
-<div style="max-width:1180px;margin:0 auto;padding:0 18px 22px;color:#7b8491;font-size:12px">מאגר מוצרים: Open Food Facts. הנתונים מוזנים על ידי הקהילה, ולכן יש לבדוק תווית מוצר כשדיוק חשוב.</div></body>
+<div style="max-width:1180px;margin:0 auto;padding:0 18px 22px;color:#7b8491;font-size:12px">מאגר מוצרים: Open Food Facts. הנתונים מוזנים על ידי הקהילה, ולכן יש לבדוק תווית מוצר כשדיוק חשוב.</div>
+<script>
+/* User switching + deletion */
+(function(){
+  const USERS_KEY = 'cutcoach_users_v2';
+  const CURRENT_KEY = 'cutcoach_current_user_v2';
+  const stateKey = n => 'cutcoach_user_state_v2_' + encodeURIComponent(n);
+
+  function users(){ try{return JSON.parse(localStorage.getItem(USERS_KEY)||'[]')}catch(e){return[]} }
+  function saveUsers(a){localStorage.setItem(USERS_KEY,JSON.stringify(a))}
+  function current(){return localStorage.getItem(CURRENT_KEY)||''}
+  function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+  window.openUserManager=function(){
+    document.getElementById('userManager').style.display='block';
+    renderUsers();
+  };
+  window.closeUserManager=function(){
+    document.getElementById('userManager').style.display='none';
+  };
+  window.createUser=function(){
+    const input=document.getElementById('newUserName');
+    const name=(input.value||'').trim();
+    if(!name)return alert('נא להזין שם משתמש.');
+    let a=users();
+    if(a.some(x=>x.toLowerCase()===name.toLowerCase()))return alert('משתמש בשם הזה כבר קיים.');
+    a.push(name); saveUsers(a); input.value=''; switchUser(name);
+  };
+  window.switchUser=function(name){
+    if(!users().includes(name))return;
+    localStorage.setItem(CURRENT_KEY,name);
+    try{
+      const raw=localStorage.getItem(stateKey(name));
+      if(raw && typeof state!=='undefined') state=JSON.parse(raw);
+      else if(typeof state!=='undefined') state={profile:{},foods:[],menu:[],chat:[],savedMeals:[],weights:[]};
+      if(typeof saveState==='function' && typeof state!=='undefined') saveState();
+      if(typeof renderAll==='function')renderAll();
+      if(typeof calculate==='function')calculate();
+    }catch(e){}
+    renderBadge(); closeUserManager();
+  };
+  window.deleteUser=function(name){
+    const a=users();
+    if(a.length<=1)return alert('אי אפשר למחוק את המשתמש האחרון. צור משתמש אחר לפני המחיקה.');
+    if(!confirm('למחוק את "'+name+'" ואת כל הנתונים שלו?'))return;
+    localStorage.removeItem(stateKey(name));
+    const next=a.filter(x=>x!==name); saveUsers(next);
+    if(current()===name) switchUser(next[0]); else renderUsers();
+  };
+  function renderUsers(){
+    const box=document.getElementById('userList'), cur=current(), a=users();
+    box.innerHTML=a.map(n=>`
+      <div style="display:flex;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #eee">
+        <button onclick="switchUser('${String(n).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')" style="flex:1;text-align:right">
+          ${n===cur?'✅ ':''}${esc(n)}
+        </button>
+        <button onclick="deleteUser('${String(n).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')" style="background:#c62828;color:#fff">🗑️</button>
+      </div>`).join('');
+  }
+  function renderBadge(){
+    let b=document.getElementById('ccUserBadge');
+    if(!b){b=document.createElement('button');b.id='ccUserBadge';b.onclick=openUserManager;
+      b.style.cssText='position:fixed;top:10px;right:10px;z-index:9998;border-radius:12px;padding:8px 12px';
+      document.body.appendChild(b)}
+    b.textContent='👤 '+(current()||'משתמש');
+  }
+
+  document.addEventListener('DOMContentLoaded',function(){
+    let a=users(), cur=current();
+    if(!a.length){
+      const legacy=(typeof state!=='undefined'&&state.profile&&state.profile.name)?String(state.profile.name).trim():'';
+      cur=legacy||'המשתמש שלי'; a=[cur]; saveUsers(a); localStorage.setItem(CURRENT_KEY,cur);
+      if(typeof state!=='undefined')localStorage.setItem(stateKey(cur),JSON.stringify(state));
+    } else if(!a.includes(cur)){cur=a[0];localStorage.setItem(CURRENT_KEY,cur)}
+    if(typeof state!=='undefined'){
+      const raw=localStorage.getItem(stateKey(cur)); if(raw)try{state=JSON.parse(raw)}catch(e){}
+      if(typeof renderAll==='function')renderAll();
+      if(typeof calculate==='function')calculate();
+    }
+    renderBadge();
+  });
+})();
+</script>
+
+</body>
 </html>
