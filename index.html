@@ -18,14 +18,14 @@ label{display:block;font-size:13px;font-weight:650;margin-bottom:5px}.field{marg
 .chat{height:410px;overflow:auto;background:#f8fafc;border-radius:12px;padding:12px}.msg{max-width:92%;padding:12px 14px;border-radius:13px;margin:8px 0;white-space:pre-wrap;line-height:1.55;overflow-wrap:anywhere}.user{background:#dbeafe;margin-right:auto}.ai{background:#fff;border:1px solid var(--line)}.chatbar{display:flex;gap:8px;margin-top:10px}.chatbar input{flex:1}
 table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;border-bottom:1px solid var(--line);font-size:14px}.empty{padding:25px;text-align:center;color:var(--muted)}
 .hero{background:linear-gradient(135deg,#172554,#2563eb);color:white;border-radius:18px;padding:22px;margin-bottom:16px}.hero .muted{color:#dbeafe}.big{font-size:40px;font-weight:800}.notice{padding:12px;border-radius:10px;background:#fff7ed;color:#9a3412;font-size:13px;margin-top:10px}
-@media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}header{align-items:flex-start;gap:10px;flex-direction:column}}@media(max-width:520px){.app{padding:10px}.grid{grid-template-columns:1fr 1fr}.card{padding:14px}.big{font-size:32px}}
+@media(max-width:850px){.header-actions{width:100%;flex-wrap:wrap}.header-actions nav{flex:1}.grid{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}header{align-items:flex-start;gap:10px;flex-direction:column}}@media(max-width:520px){.app{padding:10px}.grid{grid-template-columns:1fr 1fr}.card{padding:14px}.big{font-size:32px}}
 </style>
 </head>
 <body>
 <div class="app">
-<header><div class="brand">Cut<span>Coach</span> 🥗</div><nav id="nav">
+<header><div class="brand">Cut<span>Coach</span> 🥗</div><div class="header-actions" style="display:flex;gap:8px;align-items:center"><button class="btn secondary" onclick="updateApp()">↻ עדכון</button><nav id="nav">
 <button class="active" data-page="home">היום</button><button data-page="log">יומן אוכל</button><button data-page="menu">התפריט שלי</button><button data-page="progress">מעקב שבועי</button><button data-page="coach">AI Coach</button><button data-page="profile">הפרופיל</button>
-</nav></header>
+</nav></div></header>
 
 <section id="home" class="page active">
 <div class="hero"><div class="muted">היעד היומי שלך</div><div class="big" id="heroCal">0 / 0 kcal</div><div id="heroRemain">הגדר פרופיל כדי להתחיל</div></div>
@@ -296,23 +296,40 @@ async function smartFood(){
 }
 function generateMenu(){let c=calcProfile(state.profile);if(!c)return;let remain=c.cal;let meals=[['בוקר','3 ביצים + 2 פרוסות לחם + ירקות',430,25],['צהריים','200g חזה עוף + 180g אורז + סלט',650,68],['נשנוש','קוטג׳ + פרי',260,23],['ערב','טונה + 2 פרוסות לחם + ירקות',430,40]];let scale=Math.min(1, c.cal/1770);state.menu=meals.map(x=>({meal:x[0],name:x[1],cal:Math.round(x[2]*scale),pro:Math.round(x[3]*scale)}));save();renderMenu();}
 function renderMenu(){$('menuList').innerHTML=state.menu.map(m=>`<div class="meal"><div class="row"><strong>${m.meal}</strong><span class="pill">${m.cal} kcal · ${m.pro}g חלבון</span></div><div style="margin-top:7px">${m.name}</div></div>`).join('');}
-function portionAdvice(){
- let food=$('wantFood').value||'ארוחה', rem=+$('remainingInput').value||calcProfile(state.profile)?.cal||0;
- $('portionResult').innerHTML=`<div class="notice"><b>${food}</b>: נשארו לך כ-${Math.round(rem)} קלוריות. כדי לתת כמויות מדויקות, חפש את המוצרים במאגר דרך "יומן אוכל", ואז אפשר לחשב את הכמות לפי הקלוריות והחלבון שלהם.</div>`;
+async function portionAdvice(){
+ const food=$('wantFood').value.trim()||'ארוחה';
+ const rem=+$('remainingInput').value||0;
+ if(!rem){$('portionResult').innerHTML='<div class="notice">הזן כמה קלוריות נשארו לך.</div>';return;}
+ if(!state.geminiKey){$('portionResult').innerHTML='<div class="notice">כדי לקבל הצעת כמויות, שמור מפתח Gemini בפרופיל.</div>';return;}
+ $('portionResult').innerHTML='<div class="empty">🤖 מחשב כמויות...</div>';
+ const c=calcProfile(state.profile),t=totals();
+ const prompt=`המשתמש רוצה לאכול: ${food}.
+נשארו לו ${Math.round(rem)} קלוריות.
+${c?`יעד החלבון היומי: ${c.protein} גרם. נצרך עד עכשיו: ${Math.round(t.pro)} גרם.`:''}
+תן הצעה מעשית שמתאימה לכ-${Math.round(rem)} קלוריות.
+החזר רק 1-3 פריטי מזון עם כמויות ברורות בגרמים או יחידות.
+דוגמה לפורמט:
+• 170 גרם חזה עוף
+• חצי אבוקדו
+• 100 גרם אורז
+בסוף כתוב רק: סה"כ כ-XXX קלוריות.
+בלי פסקה ארוכה, בלי חישובים מפורטים ובלי שאלות.`;
+ const ans=await callGemini(prompt);
+ $('portionResult').innerHTML='<div class="notice">'+ans.replace(/\n/g,'<br>')+'</div>';
 }
 async function callGemini(userText, imageData=null, mimeType='image/jpeg'){
  const key=state.geminiKey;
  if(!key) return 'אין עדיין מפתח Gemini. היכנס ל"הפרופיל שלי" והדבק את המפתח שלך.';
  const c=calcProfile(state.profile),t=totals();
  const context=c?`פרופיל: ${state.profile.gender==='male'?'גבר':'אישה'}, גיל ${state.profile.age}, גובה ${state.profile.height} ס"מ, משקל ${state.profile.weight} ק"ג, יעד ${state.profile.target} ק"ג. יעד יומי: ${c.cal} kcal, חלבון ${c.protein}g, פחמימות ${c.carb}g, שומן ${c.fat}g. נצרך היום: ${t.cal} kcal, חלבון ${t.pro}g, פחמימות ${t.carb}g, שומן ${t.fat}g.`:'אין פרופיל עדיין.';
- const prompt=`אתה מאמן תזונה אישי בתוך אפליקציית CutCoach. ענה בעברית תקינה, ברורה וטבעית, בלי שגיאות כתיב ככל האפשר. היה תמציתי אך מלא: השלם את כל המשפטים ואל תחתוך תשובה באמצע. אל תאריך מעבר לנדרש. כשמנתחים תמונת אוכל, זהה את המזונות הנראים בתמונה והערך כמויות/משקל ומאקרו. חשוב: זיהוי מתמונה הוא הערכה בלבד; אל תציג מספרים כאמת ודאית. אם אי אפשר לדעת כמות או מרכיבים, ציין זאת ובקש אישור. ${context}
+ const prompt=`אתה מאמן תזונה אישי בתוך אפליקציית CutCoach. ענה בעברית תקינה, ברורה וטבעית, בלי שגיאות כתיב ככל האפשר. ענה באורך הנדרש כדי להשלים את התשובה. השלם תמיד את כל המשפטים ואל תפסיק באמצע רעיון או משפט. היה ברור וממוקד, בלי להאריך סתם. כשמנתחים תמונת אוכל, זהה את המזונות הנראים בתמונה והערך כמויות/משקל ומאקרו. חשוב: זיהוי מתמונה הוא הערכה בלבד; אל תציג מספרים כאמת ודאית. אם אי אפשר לדעת כמות או מרכיבים, ציין זאת ובקש אישור. ${context}
 בקשת המשתמש: ${userText}`;
  const parts=[{text:prompt}];
  if(imageData) parts.push({inlineData:{mimeType,data:imageData}});
  try{
    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
      method:'POST',headers:{'Content-Type':'application/json'},
-     body:JSON.stringify({contents:[{parts}],generationConfig:{maxOutputTokens:1000}})
+     body:JSON.stringify({contents:[{parts}],generationConfig:{maxOutputTokens:1400}})
    });
    const d=await r.json();
    if(!r.ok) return 'Gemini החזיר שגיאה: '+(d.error?.message||r.status);
@@ -352,6 +369,12 @@ async function sendChat(){
  const loading={who:'ai',text:'חושב...'};state.chat.push(loading);renderChat();
  const ans=await callGemini(q);state.chat[state.chat.length-1].text=ans;save();renderChat();
 }
+function updateApp(){
+ const u=new URL(location.href);
+ u.searchParams.set('v',Date.now());
+ location.replace(u.toString());
+}
+
 renderHome();renderProfile();renderLog();renderSavedMeals();renderWeekly();if(state.menu.length)renderMenu();
 </script>
 <div style="max-width:1180px;margin:0 auto;padding:0 18px 22px;color:#7b8491;font-size:12px">מאגר מוצרים: Open Food Facts. הנתונים מוזנים על ידי הקהילה, ולכן יש לבדוק תווית מוצר כשדיוק חשוב.</div></body>
