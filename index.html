@@ -76,7 +76,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 <h1>התפריט הדינאמי שלי</h1>
 <div class="card" style="padding:12px 16px"><span class="muted">💡 התפריט יכול להתבסס על מוצרים אמיתיים מהמאגר — כולל ערכים ל-100 גרם/מנה.</span></div>
 <div class="card"><div class="row"><div><h2>תוכנית יומית</h2><div class="muted">התפריט מתחשב ביעד הקלורי ובחלבון שלך.</div></div><button class="btn primary" onclick="generateMenu()">🔄 צור מחדש</button></div><div id="menuList"></div></div>
-<div class="card"><h2>התאמה מהירה</h2><div class="grid2"><div class="field"><label>מה בא לך לאכול?</label><input id="wantFood" placeholder="למשל: שניצל ואורז"></div><div class="field"><label>כמה קלוריות נשארו?</label><input id="remainingInput" type="number"></div></div><button class="btn primary" onclick="portionAdvice()">חשב כמות</button><div id="portionResult"></div></div>
+<div class="card"><h2>התאמה מהירה</h2><div class="grid2"><div class="field"><label>מה בא לך לאכול?</label><input id="wantFood" placeholder="למשל: שניצל ואורז"></div><div class="field"><label>קלוריות שנשארו היום (מחושב אוטומטית)</label><input id="remainingInput" type="number" readonly></div></div><button class="btn primary" onclick="portionAdvice()">חשב כמות</button><div id="portionResult"></div></div>
 </section>
 
 <section id="coach" class="page">
@@ -146,6 +146,8 @@ onAuthStateChanged(window.fbAuth, async (user) => {
         if (Array.isArray(cloud.foods)) state.foods = cloud.foods;
         if (Array.isArray(cloud.menu)) state.menu = cloud.menu;
         if (Array.isArray(cloud.chat)) state.chat = cloud.chat;
+        if (Array.isArray(cloud.savedMeals)) state.savedMeals = cloud.savedMeals;
+        if (Array.isArray(cloud.weights)) state.weights = cloud.weights;
         save();
         renderHome(); renderProfile(); renderLog(); if(state.menu.length) renderMenu(); renderChat();
       }
@@ -160,6 +162,8 @@ onAuthStateChanged(window.fbAuth, async (user) => {
 const KEY='cutcoach_v1';
 let state=JSON.parse(localStorage.getItem(KEY)||'null')||{profile:{},foods:[],menu:[],chat:[],savedMeals:[],weights:[]};
 state.savedMeals=state.savedMeals||[]; state.weights=state.weights||[];
+const TODAY=()=>new Date().toISOString().slice(0,10);
+state.foods=(state.foods||[]).map(f=>({...f,date:f.date||TODAY()}));
 const $=id=>document.getElementById(id);
 let cloudTimer;
 function save(){
@@ -171,7 +175,7 @@ async function syncCloud(){
   try{
     const {doc,setDoc}=window.firebaseFns;
     await setDoc(doc(window.firebaseDb,"users",window.firebaseUser.uid),{
-      profile:state.profile, foods:state.foods, menu:state.menu, chat:state.chat,
+      profile:state.profile, foods:state.foods, menu:state.menu, chat:state.chat, savedMeals:state.savedMeals, weights:state.weights,
       updatedAt:new Date().toISOString()
     },{merge:true});
     updateCloudStatus("☁️ נשמר בענן");
@@ -206,30 +210,54 @@ function renderWeekly(){
  s.innerHTML=`<div class="foodline"><span>שינוי מאז הדיווח הראשון</span><b>${diff>0?'+':''}${diff.toFixed(1)} kg</b></div>`+(target!==null?`<div class="foodline"><span>עד משקל היעד</span><b>${target.toFixed(1)} kg</b></div>`:'');
 }
 function renderProfile(){let p=state.profile;$('geminiKey').value=state.geminiKey||'';if($('weeklyDate'))$('weeklyDate').value=new Date().toISOString().slice(0,10);$('aiStatus').textContent=state.geminiKey?'מפתח שמור במכשיר.':'אין מפתח שמור.';$('gender').value=p.gender||'male';['age','height','weight','target'].forEach(k=>$(k).value=p[k]||'');$('activity').value=p.activity||'1.55';$('rate').value=p.rate||'.5';let c=calcProfile(p);$('calcBox').innerHTML=c?`<div class="foodline"><span>שריפת בסיס (BMR)</span><b>${c.bmr} kcal</b></div><div class="foodline"><span>תחזוקה משוערת (TDEE)</span><b>${c.tdee} kcal</b></div><div class="foodline"><span>🎯 יעד קלורי</span><b>${c.cal} kcal</b></div><div class="foodline"><span>🥩 חלבון</span><b>${c.protein}g</b></div><div class="foodline"><span>🍚 פחמימות</span><b>${c.carb}g</b></div><div class="foodline"><span>🥑 שומן</span><b>${c.fat}g</b></div>`:'מלא את הפרופיל';}
-function totals(){return state.foods.reduce((a,f)=>{a.cal+=f.cal;a.pro+=f.pro;a.carb+=f.carb||0;a.fat+=f.fat||0;return a},{cal:0,pro:0,carb:0,fat:0});}
-function renderHome(){let c=calcProfile(state.profile),t=totals();if(!c){$('heroCal').textContent='0 / 0 kcal';$('heroRemain').textContent='הגדר פרופיל כדי להתחיל';return}$('heroCal').textContent=`${t.cal} / ${c.cal} kcal`;$('heroRemain').textContent=t.cal<=c.cal?`נשארו לך ${c.cal-t.cal} קלוריות היום`:`חרגת בכ-${t.cal-c.cal} קלוריות`;[['sCal','pCal','cal',c.cal],['sPro','pPro','pro',c.protein],['sCarb','pCarb','carb',c.carb],['sFat','pFat','fat',c.fat]].forEach(x=>{$(x[0]).textContent=x[2]==='cal'?t[x[2]]:t[x[2]]+'g';$(x[1]).style.width=Math.min(100,t[x[2]]/x[3]*100)+'%'});$('todayMeals').innerHTML=state.foods.length?state.foods.map(f=>`<div class="foodline"><span>${f.name}<small class="muted"> · ${f.qty||1} ${f.unit||'מנה'} · ${f.meal}</small></span><b>${f.cal} kcal</b></div>`).join(''):'<div class="empty">עדיין לא הוספת אוכל היום.</div>';$('goalBox').innerHTML=`<div class="foodline"><span>משקל נוכחי</span><b>${state.profile.weight||'—'} kg</b></div><div class="foodline"><span>יעד</span><b>${state.profile.target||'—'} kg</b></div>`;}
-function renderLog(){$('logList').innerHTML=state.foods.length?state.foods.map((f,i)=>`<div class="foodline"><span><b>${f.name}</b><br><small class="muted">${f.qty||1} ${f.unit||'מנה'} · ${f.meal} · ${f.pro}g חלבון</small></span><span>${f.cal} kcal <button class="btn dangerBtn" onclick="delFood(${i})">×</button></span></div>`).join(''):'<div class="empty">אין מזונות ביומן.</div>';$('logList').insertAdjacentHTML('afterend','<div style="margin-top:10px"><button class="btn secondary" onclick="saveCurrentMeal()">⭐ שמור את הארוחות האחרונות</button></div>');renderSavedMeals();}
+function todayFoods(){return state.foods.filter(f=>(f.date||TODAY())===TODAY());}
+function totals(){
+  return todayFoods().reduce((a,f)=>{
+    a.cal+=Number(f.cal)||0;a.pro+=Number(f.pro)||0;a.carb+=Number(f.carb)||0;a.fat+=Number(f.fat)||0;
+    return a;
+  },{cal:0,pro:0,carb:0,fat:0});
+}
+function renderHome(){
+  let c=calcProfile(state.profile),t=totals(),foods=todayFoods();
+  if(!c){$('heroCal').textContent='0 / 0 kcal';$('heroRemain').textContent='הגדר פרופיל כדי להתחיל';return}
+  $('heroCal').textContent=`${Math.round(t.cal)} / ${c.cal} kcal`;
+  $('heroRemain').textContent=t.cal<=c.cal?`נשארו לך ${Math.max(0,c.cal-Math.round(t.cal))} קלוריות היום`:`חרגת בכ-${Math.round(t.cal-c.cal)} קלוריות`;
+  [['sCal','pCal','cal',c.cal],['sPro','pPro','pro',c.protein],['sCarb','pCarb','carb',c.carb],['sFat','pFat','fat',c.fat]].forEach(x=>{
+    $(x[0]).textContent=x[2]==='cal'?Math.round(t[x[2]]):Math.round(t[x[2]])+'g';
+    $(x[1]).style.width=Math.min(100,t[x[2]]/x[3]*100)+'%';
+  });
+  $('todayMeals').innerHTML=foods.length?foods.map(f=>`<div class="foodline"><span>${f.name}<small class="muted"> · ${f.qty||1} ${f.unit||'מנה'} · ${f.meal}</small></span><b>${Math.round(f.cal)} kcal</b></div>`).join(''):'<div class="empty">עדיין לא הוספת אוכל היום.</div>';
+  $('goalBox').innerHTML=`<div class="foodline"><span>משקל נוכחי</span><b>${state.profile.weight||'—'} kg</b></div><div class="foodline"><span>יעד</span><b>${state.profile.target||'—'} kg</b></div>`;
+}
+function renderLog(){
+  $('logList').innerHTML=state.foods.length?state.foods.map((f,i)=>`<div class="foodline"><span><b>${f.name}</b><br><small class="muted">${f.qty||1} ${f.unit||'מנה'} · ${f.meal} · ${f.date||TODAY()} · ${f.pro}g חלבון</small></span><span>${Math.round(f.cal)} kcal <button class="btn dangerBtn" onclick="delFood(${i})">×</button></span></div>`).join(''):'<div class="empty">אין מזונות ביומן.</div>';
+  if(!document.getElementById('saveMealAction')) $('logList').insertAdjacentHTML('afterend','<div id="saveMealAction" style="margin-top:10px"><button class="btn secondary" onclick="saveCurrentMeal()">⭐ שמור ארוחה</button></div>');
+  renderSavedMeals();
+}
 function addFood(){
- let name=$('foodText').value.trim();if(!name)return;
- let qty=+$('foodQty').value||1, unit=$('foodUnit').value;
- let base=estimate(name);
- let baseCal=+$('foodCal').value||base.cal, basePro=+$('foodPro').value||base.pro;
- let baseCarb=+$('foodCarb').value||base.carb||0, baseFat=+$('foodFat').value||base.fat||0;
- let multiplier=(unit==='g'||unit==='ml')?qty/100:qty;
- state.foods.push({name,meal:$('mealType').value,qty,unit,cal:Math.round(baseCal*multiplier),pro:Math.round(basePro*multiplier),carb:Math.round(baseCarb*multiplier),fat:Math.round(baseFat*multiplier)});
- save();['foodText','foodCal','foodPro','foodCarb','foodFat'].forEach(id=>$(id).value='');$('foodQty').value=1;$('foodUnit').value='g';renderLog();renderHome();
+  let name=$('foodText').value.trim();if(!name)return;
+  let qty=+$('foodQty').value||1, unit=$('foodUnit').value;
+  let base=estimate(name);
+  let baseCal=+$('foodCal').value||base.cal, basePro=+$('foodPro').value||base.pro;
+  let baseCarb=+$('foodCarb').value||base.carb||0, baseFat=+$('foodFat').value||base.fat||0;
+  let multiplier=(unit==='g'||unit==='ml')?qty/100:qty;
+  state.foods.push({name,meal:$('mealType').value,qty,unit,date:TODAY(),cal:Math.round(baseCal*multiplier),pro:Math.round(basePro*multiplier),carb:Math.round(baseCarb*multiplier),fat:Math.round(baseFat*multiplier)});
+  save();['foodText','foodCal','foodPro','foodCarb','foodFat'].forEach(id=>$(id).value='');$('foodQty').value=1;$('foodUnit').value='g';renderLog();renderHome();
 }
 function saveCurrentMeal(){
- if(!state.foods.length){alert('אין ארוחה לשמור.');return;}
- const title=prompt('איך לקרוא לארוחה?','הארוחה שלי'); if(!title)return;
- const items=state.foods.slice(-10).map(f=>({...f}));
- state.savedMeals.push({title,items,total:items.reduce((a,f)=>({cal:a.cal+f.cal,pro:a.pro+f.pro,carb:a.carb+f.carb,fat:a.fat+f.fat}),{cal:0,pro:0,carb:0,fat:0})});
- save();renderSavedMeals();
+  const mealType=$('mealType')?.value||'';
+  const candidates=todayFoods().filter(f=>f.meal===mealType);
+  const items=(candidates.length?candidates:todayFoods()).map(f=>({...f}));
+  if(!items.length){alert('אין ארוחה היום לשמור.');return;}
+  const title=prompt('איך לקרוא לארוחה?',mealType||'הארוחה שלי'); if(!title)return;
+  const total=items.reduce((a,f)=>({cal:a.cal+(Number(f.cal)||0),pro:a.pro+(Number(f.pro)||0),carb:a.carb+(Number(f.carb)||0),fat:a.fat+(Number(f.fat)||0)}),{cal:0,pro:0,carb:0,fat:0});
+  state.savedMeals.push({title,items,total});
+  save();renderSavedMeals();
 }
 function addSavedMeal(i){
- const meal=state.savedMeals[i]; if(!meal)return;
- meal.items.forEach(f=>state.foods.push({...f,meal:'ארוחה שמורה'}));
- save();renderLog();renderHome();
+  const meal=state.savedMeals[i]; if(!meal)return;
+  meal.items.forEach(f=>state.foods.push({...f,meal:'ארוחה שמורה',date:TODAY()}));
+  save();renderLog();renderHome();
 }
 function deleteSavedMeal(i){state.savedMeals.splice(i,1);save();renderSavedMeals();}
 function renderSavedMeals(){
@@ -298,24 +326,22 @@ function generateMenu(){let c=calcProfile(state.profile);if(!c)return;let remain
 function renderMenu(){$('menuList').innerHTML=state.menu.map(m=>`<div class="meal"><div class="row"><strong>${m.meal}</strong><span class="pill">${m.cal} kcal · ${m.pro}g חלבון</span></div><div style="margin-top:7px">${m.name}</div></div>`).join('');}
 async function portionAdvice(){
  const food=$('wantFood').value.trim()||'ארוחה';
- const rem=+$('remainingInput').value||0;
- if(!rem){$('portionResult').innerHTML='<div class="notice">הזן כמה קלוריות נשארו לך.</div>';return;}
+ const c=calcProfile(state.profile),t=totals();
+ const rem=Math.max(0,Math.round((c?.cal||0)-t.cal));
+ if($("remainingInput")) $("remainingInput").value=rem;
+ if(!rem){$('portionResult').innerHTML='<div class="notice">אין כרגע קלוריות פנויות לפי היעד היומי.</div>';return;}
  if(!state.geminiKey){$('portionResult').innerHTML='<div class="notice">כדי לקבל הצעת כמויות, שמור מפתח Gemini בפרופיל.</div>';return;}
  $('portionResult').innerHTML='<div class="empty">🤖 מחשב כמויות...</div>';
- const c=calcProfile(state.profile),t=totals();
  const prompt=`המשתמש רוצה לאכול: ${food}.
-נשארו לו ${Math.round(rem)} קלוריות.
-${c?`יעד החלבון היומי: ${c.protein} גרם. נצרך עד עכשיו: ${Math.round(t.pro)} גרם.`:''}
-תן הצעה מעשית שמתאימה לכ-${Math.round(rem)} קלוריות.
-החזר רק 1-3 פריטי מזון עם כמויות ברורות בגרמים או יחידות.
-דוגמה לפורמט:
-• 170 גרם חזה עוף
-• חצי אבוקדו
-• 100 גרם אורז
-בסוף כתוב רק: סה"כ כ-XXX קלוריות.
-בלי פסקה ארוכה, בלי חישובים מפורטים ובלי שאלות.`;
- const ans=await callGemini(prompt);
- $('portionResult').innerHTML='<div class="notice">'+ans.replace(/\n/g,'<br>')+'</div>';
+תקציב הארוחה הוא בדיוק ${rem} קלוריות מתוך היתרה של היום.
+החזר 2-4 פריטי מזון. לכל פריט החזר שם, כמות, יחידה, caloriesPer100g אם היחידה גרם/מ"ל או caloriesPerUnit אם היחידה יחידה/חצי יחידה/פרוסה/מנה.
+העדף לפחות פריט אחד שניתן למדוד בגרמים כדי שאפשר יהיה לכוון את הסכום מקומית.
+אין טקסט חופשי.`;
+ try{
+   const data=await getMealPlanStructured(prompt);
+   const ans=formatMealPlan(data,rem);
+   $('portionResult').innerHTML='<div class="notice">'+ans.replace(/\n/g,'<br>')+'</div>';
+ }catch(e){$('portionResult').innerHTML='<div class="notice">לא הצלחתי ליצור הצעת כמויות תקינה. נסה שוב.</div>';}
 }
 async function callGemini(userText, imageData=null, mimeType='image/jpeg'){
  const key=state.geminiKey;
@@ -363,131 +389,111 @@ async function testGemini(){
  $('aiStatus').textContent=ans;
 }
 function renderChat(){$('chat').innerHTML=state.chat.map(m=>`<div class="msg ${m.who}">${m.text}</div>`).join('');$('chat').scrollTop=99999;}
-async function sendChat(){
- let q=$('chatInput').value.trim(); if(!q)return;
- if(!state.geminiKey){
-   $('chat').innerHTML='<div class="msg ai">שמור קודם את מפתח Gemini בפרופיל.</div>';
-   return;
- }
-
- const c=calcProfile(state.profile);
- const t=totals();
- const target=c?.cal||0;
- const consumed=Math.round(t.cal);
- const remaining=Math.max(0,target-consumed);
- const match=q.match(/(\d{2,4})\s*קלוריות/);
- $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">🤖 מחשב...</div>';
-
+async function getMealPlanStructured(prompt){
  const key=state.geminiKey;
-
- try{
-   let prompt;
-   let generationConfig={maxOutputTokens:300,temperature:0.2};
-
-   if(match){
-     const requested=Math.round(+match[1]);
-     const after=Math.max(0,remaining-requested);
-
-     if(requested>remaining){
-       const ans=`נשארו לך רק ${remaining} קלוריות לצרוך היום, לכן אי אפשר להכניס ארוחה של ${requested} קלוריות בלי לעבור את היעד.`;
-       $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+ans+'</div>';
-       state.chat=[{who:'user',text:q},{who:'ai',text:ans}];
-       save();
-       $('chatInput').value='';
-       return;
-     }
-
-     prompt=`המשתמש רוצה לאכול כ-${requested} קלוריות.
-אל תנהל שיחה ואל תסביר. בנה ארוחה של 2 עד 4 פריטי מזון.
-לכל פריט חובה להחזיר: שם המזון, כמות מספרית, יחידת מידה, וקלוריות משוערות.
-יחידת המידה חייבת להיות אחת מאלה: גרם, מ"ל, יחידה, חצי יחידה, פרוסה, מנה.
-הכמויות חייבות להיות מעשיות, והסכום הכולל של הקלוריות צריך להיות קרוב ככל האפשר ל-${requested}.
-העדף מזונות עשירים בחלבון כאשר אפשר.
-אין הקדמה ואין שאלות.`;
-
-     generationConfig.responseMimeType='application/json';
-     generationConfig.responseSchema={
+ const schema={
+   type:'object',
+   properties:{
+     items:{type:'array',minItems:2,maxItems:4,items:{
        type:'object',
        properties:{
-         items:{
-           type:'array',
-           minItems:2,
-           maxItems:4,
-           items:{
-             type:'object',
-             properties:{
-               name:{type:'string'},
-               quantity:{type:'number'},
-               unit:{type:'string',enum:['גרם','מ"ל','יחידה','חצי יחידה','פרוסה','מנה']},
-               calories:{type:'integer'}
-             },
-             required:['name','quantity','unit','calories'],
-             additionalProperties:false
-           }
-         },
-         totalCalories:{type:'integer'}
+         name:{type:'string'},
+         quantity:{type:'number',minimum:0.1},
+         unit:{type:'string',enum:['גרם','מ"ל','יחידה','חצי יחידה','פרוסה','מנה']},
+         caloriesPer100g:{type:'number',minimum:0},
+         caloriesPerUnit:{type:'number',minimum:0}
        },
-       required:['items','totalCalories'],
+       required:['name','quantity','unit','caloriesPer100g','caloriesPerUnit'],
        additionalProperties:false
-     };
-
-     const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
-       method:'POST',
-       headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig})
+     }}
+   },
+   required:['items'],additionalProperties:false
+ };
+ const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{
+     maxOutputTokens:400,temperature:0.15,responseMimeType:'application/json',responseSchema:schema
+   }})
+ });
+ const d=await r.json();
+ if(!r.ok) throw new Error(d.error?.message||('HTTP '+r.status));
+ const raw=d.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('')||'';
+ const data=JSON.parse(raw);
+ if(!Array.isArray(data.items)||data.items.length<2) throw new Error('bad structured output');
+ return data;
+}
+function normalizeMealItems(data,target){
+ let items=data.items.map(x=>{
+   const qty=Math.max(.1,Number(x.quantity)||1);
+   const unit=x.unit||'גרם';
+   let cal;
+   if(unit==='גרם'||unit==='מ"ל') cal=(Math.max(0,Number(x.caloriesPer100g)||0)*qty/100);
+   else cal=(Math.max(0,Number(x.caloriesPerUnit)||0)*qty);
+   return {...x,quantity:qty,cal:cal};
+ }).filter(x=>x.cal>0);
+ if(!items.length) throw new Error('no calories');
+ let total=items.reduce((a,x)=>a+x.cal,0);
+ const diff=target-total;
+ // Use a gram/ml item as the local correction so the displayed meal really matches the app's calorie budget.
+ const adjustable=items.findLast?items.findLast(x=>x.unit==='גרם'||x.unit==='מ"ל'):items.slice().reverse().find(x=>x.unit==='גרם'||x.unit==='מ"ל');
+ if(adjustable && adjustable.cal+diff>1 && adjustable.cal>1){
+   const per100=Number(adjustable.caloriesPer100g)||0;
+   if(per100>0){
+     const newQty=Math.max(.1,adjustable.quantity+(diff*100/per100));
+     adjustable.quantity=Math.round(newQty);
+     adjustable.cal=per100*adjustable.quantity/100;
+   }
+ }
+ total=items.reduce((a,x)=>a+x.cal,0);
+ return {items,total};
+}
+function formatMealPlan(data,target){
+ const norm=normalizeMealItems(data,target);
+ const lines=norm.items.map(x=>{
+   const qty=Number.isInteger(x.quantity)?x.quantity:Number(x.quantity.toFixed(1)).toString();
+   return `• ${x.name} — ${qty} ${x.unit} · ${Math.round(x.cal)} kcal`;
+ });
+ const total=Math.round(norm.total);
+ const delta=target-total;
+ return lines.join('\n')+`\n\nסה"כ ${total} קלוריות\nנשארו לך ${Math.max(0,target)} קלוריות לצרוך היום.`;
+}
+async function sendChat(){
+ let q=$('chatInput').value.trim(); if(!q)return;
+ if(!state.geminiKey){$('chat').innerHTML='<div class="msg ai">שמור קודם את מפתח Gemini בפרופיל.</div>';return;}
+ const c=calcProfile(state.profile),t=totals(),remaining=Math.max(0,Math.round((c?.cal||0)-t.cal));
+ const match=q.match(/(\d{2,4})\s*(?:קלוריות|kcal|קק"ל)/i);
+ $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">🤖 מחשב...</div>';
+ try{
+   if(match){
+     const requested=Math.round(+match[1]);
+     if(requested>remaining){
+       const ans=`נשארו לך רק ${remaining} קלוריות לצרוך היום, לכן ארוחה של ${requested} קלוריות תחרוג מהיעד.`;
+       $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+ans+'</div>';
+       state.chat=[{who:'user',text:q},{who:'ai',text:ans}];save();$('chatInput').value='';return;
+     }
+     const prompt=`בנה ארוחה של כ-${requested} קלוריות למשתמש. ${c?`יעד חלבון יומי ${c.protein} גרם; נצרכו היום ${Math.round(t.pro)} גרם.`:''}
+החזר 2-4 פריטי מזון, עם כמויות מעשיות. חובה לכל פריט להחזיר caloriesPer100g וגם caloriesPerUnit; השתמש ב-caloriesPer100g עבור גרם/מ"ל וב-caloriesPerUnit עבור יחידה/חצי יחידה/פרוסה/מנה. העדף לפחות פריט אחד בגרמים. אין הסברים ואין טקסט חופשי.`;
+     const data=await getMealPlanStructured(prompt);
+     const norm=normalizeMealItems(data,requested);
+     const lines=norm.items.map(x=>{
+       const qty=Number.isInteger(x.quantity)?x.quantity:Number(x.quantity.toFixed(1)).toString();
+       return `• ${x.name} — ${qty} ${x.unit} · ${Math.round(x.cal)} kcal`;
      });
-     const d=await r.json();
-
-     if(!r.ok) throw new Error(d.error?.message||('HTTP '+r.status));
-
-     const raw=d.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('')||'';
-     let data;
-     try{ data=JSON.parse(raw); }catch(e){ throw new Error('Gemini לא החזיר פורמט תקין'); }
-
-     if(!Array.isArray(data.items)||data.items.length<2) throw new Error('Gemini החזיר פחות מדי פריטים');
-
-     const total=data.items.reduce((sum,x)=>sum+Math.max(0,Number(x.calories)||0),0);
-     const shownTotal=Math.round(total||data.totalCalories||requested);
-     const lines=data.items.map(x=>{
-       const qty=Number.isInteger(x.quantity)?x.quantity:x.quantity.toFixed(1).replace(/\.0$/,'');
-       return `• ${x.name} — ${qty} ${x.unit} · ${Math.max(0,Math.round(x.calories))} kcal`;
-     });
-     const ans=lines.join('\n')+`\n\nסה"כ כ-${shownTotal} קלוריות\nנשארו לך ${after} קלוריות לצרוך היום.`;
-
+     const total=Math.round(norm.total),after=Math.max(0,remaining-total);
+     const ans=lines.join('\n')+`\n\nסה"כ ${total} קלוריות\nנשארו לך ${after} קלוריות לצרוך היום.`;
      $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+ans.replace(/\n/g,'<br>')+'</div>';
-     state.chat=[{who:'user',text:q},{who:'ai',text:ans}];
-     save();
+     state.chat=[{who:'user',text:q},{who:'ai',text:ans}];save();
    }else{
-     prompt=`ענה בעברית בקצרה ובישירות על הבקשה.
-יעד יומי: ${target} קלוריות. נצרכו היום: ${consumed}. נשארו: ${remaining}.
-אם זו בקשה להצעת אוכל, ציין כמויות ויחידות מידה ברורות.
-בקשה: ${q}`;
-
-     const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
-       method:'POST',
-       headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:300,temperature:0.2}})
-     });
-     const d=await r.json();
-     if(!r.ok) throw new Error(d.error?.message||('HTTP '+r.status));
-     const ans=d.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('')||'לא התקבלה תשובה.';
+     const ans=await callGemini(`ענה בעברית בקצרה ובישירות. יעד יומי: ${c?.cal||0} קלוריות. נצרכו היום: ${Math.round(t.cal)}. נשארו: ${remaining}. בקשת המשתמש: ${q}`);
      $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+ans.replace(/\n/g,'<br>')+'</div>';
-     state.chat=[{who:'user',text:q},{who:'ai',text:ans}];
-     save();
+     state.chat=[{who:'user',text:q},{who:'ai',text:ans}];save();
    }
  }catch(e){
-   const msg='לא הצלחתי ליצור הצעת כמויות תקינה. נסה שוב.';
-   $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+msg+'</div>';
+   $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">לא הצלחתי ליצור הצעת כמויות תקינה. נסה שוב.</div>';
  }
  $('chatInput').value='';
 }
-function updateApp(){
- const u=new URL(location.href);
- u.searchParams.set('v',Date.now());
- location.replace(u.toString());
-}
 
-renderHome();renderProfile();renderLog();renderSavedMeals();renderWeekly();if(state.menu.length)renderMenu();
 </script>
 <div style="max-width:1180px;margin:0 auto;padding:0 18px 22px;color:#7b8491;font-size:12px">מאגר מוצרים: Open Food Facts. הנתונים מוזנים על ידי הקהילה, ולכן יש לבדוק תווית מוצר כשדיוק חשוב.</div></body>
 </html>
