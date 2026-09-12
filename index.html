@@ -119,6 +119,14 @@ table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;bo
 <div class="actions"><button class="btn primary" onclick="cloudLogin()">התחבר/סנכרן</button><button class="btn secondary" onclick="syncCloud()">שמור עכשיו</button><button class="btn dangerBtn" onclick="cloudLogout()">התנתק</button></div>
 <div class="notice">האפליקציה מתחברת אוטומטית. ב-Firebase יש להפעיל Authentication → Sign-in method → Anonymous ולוודא שחוקי Firestore מאפשרים גישה לאוסף cutcoach_profiles.</div>
 </div>
+
+<div class="card" id="firebaseDiagnosticsCard">
+  <h2>🛠️ בדיקת חיבור Firebase</h2>
+  <div id="firebaseDiagnostics" class="muted">בודק את החיבור...</div>
+  <div class="actions" style="margin-top:10px">
+    <button class="btn secondary" onclick="runFirebaseDiagnostics()">🔍 בדוק עכשיו</button>
+  </div>
+</div>
 <div class="card"><h2>🤖 חיבור ל-Gemini</h2>
 <div class="muted" style="margin-bottom:10px">לשימוש אישי אפשר להדביק כאן את המפתח שלך. הוא נשמר בדפדפן במכשיר הזה.</div>
 <div class="field"><label>Gemini API Key</label><input id="geminiKey" type="password" placeholder="AIza..."></div>
@@ -145,7 +153,8 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 window.fbAuth = getAuth(fbApp);
-window.fbDb = getFirestore(fbApp);
+window.firebaseDb = getFirestore(fbApp);
+window.fbDb = window.firebaseDb;
 window.firebaseReady = true;
 window.firebaseFns = {doc,setDoc,getDoc,collection,onSnapshot,deleteDoc,signInAnonymously,signOut};
 window.firebaseUser = null;
@@ -194,17 +203,27 @@ function save(){
 }
 function profileDocId(name){return String(name||'user').trim().replace(/[\/]/g,'-').slice(0,120)||'user';}
 const CLOUD_COLLECTION='cutcoach_profiles';
-async function loadCloudProfile(){
+async function loadCloudProfile(userName = activeUser){
   if(!window.firebaseUser||!window.firebaseDb)return;
   const {doc,getDoc}=window.firebaseFns;
-  const ref=doc(window.firebaseDb,CLOUD_COLLECTION,profileDocId(activeUser));
+  const name = userName;
+  const ref=doc(window.firebaseDb,CLOUD_COLLECTION,profileDocId(name));
   const snap=await getDoc(ref);
   if(snap.exists()){
     const cloud=snap.data();
-    state={...DEFAULT_STATE(),...cloud}; normalizeState(); accounts[activeUser]=state;
+    const loaded={...DEFAULT_STATE(),...cloud};
+    delete loaded.userName;
+    delete loaded.updatedAt;
+    normalizeObjectState(loaded);
+    accounts[name]=loaded;
     localStorage.setItem(ACCOUNTS_KEY,JSON.stringify(accounts));
-    renderAll();
-  } else {
+
+    if(activeUser===name){
+      state=loaded;
+      normalizeState();
+      renderAll();
+    }
+  } else if(activeUser===name) {
     // Create the shared named profile so it immediately appears on other devices.
     await syncCloud();
   }
@@ -236,6 +255,38 @@ async function subscribeCloudProfiles(){
 function normalizeObjectState(s){
   s.profile=s.profile||{}; s.foods=Array.isArray(s.foods)?s.foods:[]; s.menu=Array.isArray(s.menu)?s.menu:[]; s.chat=Array.isArray(s.chat)?s.chat:[]; s.savedMeals=Array.isArray(s.savedMeals)?s.savedMeals:[]; s.weights=Array.isArray(s.weights)?s.weights:[];
 }
+
+async function runFirebaseDiagnostics(){
+  const box=$('firebaseDiagnostics');
+  if(!box)return;
+  const lines=[];
+  const ok=t=>'✅ '+t;
+  const bad=t=>'❌ '+t;
+  try{
+    if(!window.firebaseReady) throw new Error('Firebase SDK לא נטען');
+    lines.push(ok('Firebase SDK נטען'));
+    if(!window.firebaseDb) lines.push(bad('Firestore לא מאותחל'));
+    else lines.push(ok('Firestore מאותחל'));
+    if(window.firebaseUser) lines.push(ok('Anonymous Auth מחובר'));
+    else lines.push(bad('אין משתמש Firebase מחובר — יש להפעיל Anonymous Authentication'));
+
+    if(window.firebaseUser && window.firebaseDb){
+      const {doc,getDoc}=window.firebaseFns;
+      const testName=activeUser||'המשתמש שלי';
+      const snap=await getDoc(doc(window.firebaseDb,CLOUD_COLLECTION,profileDocId(testName)));
+      if(snap.exists()) lines.push(ok('גישה ל-Firestore עובדת עבור "'+testName+'"'));
+      else lines.push('ℹ️ אין עדיין מסמך ענן עבור "'+testName+'" — הוא ייווצר בשמירה');
+    }
+
+    lines.push('<br><b>משתמש נוכחי:</b> '+(activeUser||'לא מוגדר'));
+    lines.push('<b>משתמשים במכשיר:</b> '+Object.keys(accounts).join(', '));
+    box.innerHTML=lines.join('<br>');
+  }catch(e){
+    box.innerHTML=lines.join('<br>')+'<br>'+bad('שגיאת Firebase: '+(e?.message||e));
+    console.error('Firebase diagnostics:',e);
+  }
+}
+
 async function updateApp(){
   const b=$('updateBtn');
   if(b){b.disabled=true;b.textContent='⏳ בודק עדכון...';}
@@ -317,27 +368,34 @@ async function deleteUser(n){
   closeUserModal();
 }
 
+let userSwitchToken = 0;
+
 function switchUser(n){
   if(!accounts[n]) return;
 
-  // Switch immediately on this device. Firebase must not block the UI.
-  activeUser=n;
-  state=accounts[n];
+  const token = ++userSwitchToken;
+
+  // Switch locally FIRST so the interface changes immediately.
+  activeUser = n;
+  state = accounts[n];
   normalizeState();
-  localStorage.setItem('cutcoach_active_user',activeUser);
+  localStorage.setItem('cutcoach_active_user', activeUser);
 
   closeUserModal();
   updateUserButton();
   renderAll();
 
-  // Load the shared copy in the background.
+  // Then load this user's shared cloud data in the background.
   if(window.firebaseUser && window.firebaseDb){
-    loadCloudProfile().then(()=>{
+    loadCloudProfile(n).then(()=>{
+      // Ignore a late response if the user already switched again.
+      if(token !== userSwitchToken || activeUser !== n) return;
       updateUserButton();
       renderAll();
-      renderUserList();
     }).catch(()=>{
-      updateCloudStatus('⚠️ לא ניתן לטעון כרגע את נתוני המשתמש מהענן');
+      if(token === userSwitchToken){
+        updateCloudStatus('⚠️ לא ניתן לטעון כרגע את נתוני המשתמש מהענן');
+      }
     });
   } else {
     save();
