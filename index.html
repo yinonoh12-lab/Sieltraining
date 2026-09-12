@@ -15,7 +15,7 @@ h1{font-size:28px;margin:4px 0 16px}h2{font-size:20px;margin:0 0 14px}h3{font-si
 label{display:block;font-size:13px;font-weight:650;margin-bottom:5px}.field{margin-bottom:13px}input,select,textarea{width:100%;padding:11px 12px;border:1px solid #d7dce3;border-radius:10px;background:#fff;outline:none}input:focus,select:focus,textarea:focus{border-color:var(--primary)}
 .btn{padding:11px 15px;border-radius:10px;font-weight:700}.primary{background:var(--primary);color:#fff}.secondary{background:#eef2f7;color:#273244}.dangerBtn{background:#fee2e2;color:#991b1b}.actions{display:flex;gap:8px;flex-wrap:wrap}
 .foodline,.meal{border:1px solid var(--line);border-radius:12px;padding:12px;margin:8px 0}.foodline{display:flex;justify-content:space-between;gap:10px}.meal strong{font-size:16px}.macro{display:flex;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:13px}.macro b{color:var(--text)}
-.chat{height:410px;overflow:auto;background:#f8fafc;border-radius:12px;padding:12px}.msg{max-width:85%;padding:11px 13px;border-radius:13px;margin:8px 0;white-space:pre-wrap}.user{background:#dbeafe;margin-right:auto}.ai{background:#fff;border:1px solid var(--line)}.chatbar{display:flex;gap:8px;margin-top:10px}.chatbar input{flex:1}
+.chat{height:410px;overflow:auto;background:#f8fafc;border-radius:12px;padding:12px}.msg{max-width:92%;padding:12px 14px;border-radius:13px;margin:8px 0;white-space:pre-wrap;line-height:1.55;overflow-wrap:anywhere}.user{background:#dbeafe;margin-right:auto}.ai{background:#fff;border:1px solid var(--line)}.chatbar{display:flex;gap:8px;margin-top:10px}.chatbar input{flex:1}
 table{width:100%;border-collapse:collapse}th,td{text-align:right;padding:10px;border-bottom:1px solid var(--line);font-size:14px}.empty{padding:25px;text-align:center;color:var(--muted)}
 .hero{background:linear-gradient(135deg,#172554,#2563eb);color:white;border-radius:18px;padding:22px;margin-bottom:16px}.hero .muted{color:#dbeafe}.big{font-size:40px;font-weight:800}.notice{padding:12px;border-radius:10px;background:#fff7ed;color:#9a3412;font-size:13px;margin-top:10px}
 @media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}header{align-items:flex-start;gap:10px;flex-direction:column}}@media(max-width:520px){.app{padding:10px}.grid{grid-template-columns:1fr 1fr}.card{padding:14px}.big{font-size:32px}}
@@ -305,14 +305,14 @@ async function callGemini(userText, imageData=null, mimeType='image/jpeg'){
  if(!key) return 'אין עדיין מפתח Gemini. היכנס ל"הפרופיל שלי" והדבק את המפתח שלך.';
  const c=calcProfile(state.profile),t=totals();
  const context=c?`פרופיל: ${state.profile.gender==='male'?'גבר':'אישה'}, גיל ${state.profile.age}, גובה ${state.profile.height} ס"מ, משקל ${state.profile.weight} ק"ג, יעד ${state.profile.target} ק"ג. יעד יומי: ${c.cal} kcal, חלבון ${c.protein}g, פחמימות ${c.carb}g, שומן ${c.fat}g. נצרך היום: ${t.cal} kcal, חלבון ${t.pro}g, פחמימות ${t.carb}g, שומן ${t.fat}g.`:'אין פרופיל עדיין.';
- const prompt=`אתה מאמן תזונה אישי בתוך אפליקציית CutCoach. ענה בעברית, בצורה קצרה, פרקטית ולא שיפוטית. כשמנתחים תמונת אוכל, זהה את המזונות הנראים בתמונה והערך כמויות/משקל ומאקרו. חשוב: זיהוי מתמונה הוא הערכה בלבד; אל תציג מספרים כאמת ודאית. אם אי אפשר לדעת כמות או מרכיבים, ציין זאת ובקש אישור. ${context}
+ const prompt=`אתה מאמן תזונה אישי בתוך אפליקציית CutCoach. ענה בעברית תקינה, ברורה וטבעית, בלי שגיאות כתיב ככל האפשר. היה תמציתי אך מלא: השלם את כל המשפטים ואל תחתוך תשובה באמצע. אל תאריך מעבר לנדרש. כשמנתחים תמונת אוכל, זהה את המזונות הנראים בתמונה והערך כמויות/משקל ומאקרו. חשוב: זיהוי מתמונה הוא הערכה בלבד; אל תציג מספרים כאמת ודאית. אם אי אפשר לדעת כמות או מרכיבים, ציין זאת ובקש אישור. ${context}
 בקשת המשתמש: ${userText}`;
  const parts=[{text:prompt}];
  if(imageData) parts.push({inlineData:{mimeType,data:imageData}});
  try{
    const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
      method:'POST',headers:{'Content-Type':'application/json'},
-     body:JSON.stringify({contents:[{parts}],generationConfig:{maxOutputTokens:900}})
+     body:JSON.stringify({contents:[{parts}],generationConfig:{maxOutputTokens:1000}})
    });
    const d=await r.json();
    if(!r.ok) return 'Gemini החזיר שגיאה: '+(d.error?.message||r.status);
