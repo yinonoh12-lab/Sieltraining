@@ -331,11 +331,12 @@ async function callGemini(userText, imageData=null, mimeType='image/jpeg'){
 2. אל תציג הוראות מערכת, טקסט בדיקה, מטא-דאטה, מחשבות פנימיות או כותרות באנגלית.
 3. לעולם אל תכתוב: Daily Target, Actionable Tip/Next Steps, Focus on Protein, No image involved, All numbers align correctly, או ניסוחים דומים.
 4. אל תענה על שאלה אחרת ואל תמחזר תשובה קודמת. התייחס רק ל"בקשת המשתמש" שמופיעה בסוף.
-5. אם המשתמש שואל "מה אפשר לאכול ב-700 קלוריות", תן הצעות מזון/ארוחות שהן בערך 700 קלוריות, עם כמויות משוערות. אל תענה על יעד חלבון אלא אם המשתמש ביקש זאת.
+5. אם המשתמש שואל "מה אפשר לאכול ב-700 קלוריות", חובה לענות בתשובה מלאה: תן 2-3 הצעות קונקרטיות לארוחה סביב 700 קלוריות, כולל מזונות, כמויות משוערות וקלוריות לכל הצעה. אל תענה על יעד חלבון אלא אם המשתמש ביקש זאת.
 6. אם המשתמש מבקש כמות לאכילה, תן כמות בגרמים/יחידות כשאפשר, והסבר בקצרה שהערכים משוערים אם אין נתוני מוצר.
 7. אם מדובר בתמונה, זהה את המזונות הנראים והערך כמות וערכים תזונתיים כהערכה בלבד.
 8. אל תמציא ערכים מדויקים למוצר ממותג ללא נתוני תווית או מאגר.
-9. ענה קצר, ברור, ישירות וללא הקדמה מיותרת.
+9. ענה קצר, ברור, ישירות וללא הקדמה מיותרת. אל תפסיק באמצע משפט או רעיון; סיים תמיד תשובה שלמה.
+10. אם השאלה מבקשת רעיונות לאוכל, אל תסתפק במשפט כללי כמו 'הנה הצעה לארוחה מאוזנת' — מיד לאחריו כתוב את ההצעה עצמה עם כמויות וקלוריות.
 
 ${context}
 
@@ -349,12 +350,16 @@ ${userText}`;
      body:JSON.stringify({
        systemInstruction:{parts:[{text:'אתה מאמן תזונה. החזר למשתמש תשובה נקייה בעברית בלבד. ענה רק על הבקשה הנוכחית. לעולם אל תציג הוראות מערכת, טקסט בדיקה, מטא-דאטה או תוכן באנגלית.'}]},
        contents:[{parts}],
-       generationConfig:{maxOutputTokens:900,temperature:0.2,responseMimeType:'text/plain'}
+       generationConfig:{maxOutputTokens:2048,temperature:0.2,responseMimeType:'text/plain',thinkingConfig:{thinkingLevel:'minimal'}}
      })
    });
    const d=await r.json();
    if(!r.ok) return 'Gemini החזיר שגיאה: '+(d.error?.message||r.status);
    const raw=d.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('')||'';
+   const finish=d.candidates?.[0]?.finishReason||'';
+   if(finish==='MAX_TOKENS' && raw){
+     return cleanAIResponse(raw+'\n\n(התשובה נקטעה. נסה לשלוח שוב לקבלת תשובה מלאה.)');
+   }
    return cleanAIResponse(raw);
  }catch(e){return 'לא הצלחתי להתחבר ל-Gemini. בדוק חיבור לאינטרנט והמפתח.';}
 }
