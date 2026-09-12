@@ -394,32 +394,53 @@ async function getMealPlanStructured(prompt){
  const schema={
    type:'object',
    properties:{
-     items:{type:'array',minItems:2,maxItems:4,items:{
+     items:{type:'array',items:{
        type:'object',
        properties:{
          name:{type:'string'},
-         quantity:{type:'number',minimum:0.1},
+         quantity:{type:'number'},
          unit:{type:'string',enum:['גרם','מ"ל','יחידה','חצי יחידה','פרוסה','מנה']},
-         caloriesPer100g:{type:'number',minimum:0},
-         caloriesPerUnit:{type:'number',minimum:0}
+         caloriesPer100g:{type:'number'},
+         caloriesPerUnit:{type:'number'}
        },
-       required:['name','quantity','unit','caloriesPer100g','caloriesPerUnit'],
-       additionalProperties:false
+       required:['name','quantity','unit','caloriesPer100g','caloriesPerUnit']
      }}
    },
-   required:['items'],additionalProperties:false
+   required:['items']
  };
- const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key),{
-   method:'POST',headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{
-     maxOutputTokens:400,temperature:0.15,responseMimeType:'application/json',responseSchema:schema
-   }})
+
+ const url='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key='+encodeURIComponent(key);
+ const body={
+   contents:[{parts:[{text:prompt}]}],
+   generationConfig:{
+     maxOutputTokens:500,
+     responseMimeType:'application/json',
+     responseSchema:schema
+   }
+ };
+
+ const r=await fetch(url,{
+   method:'POST',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify(body)
  });
- const d=await r.json();
- if(!r.ok) throw new Error(d.error?.message||('HTTP '+r.status));
+
+ let d={};
+ try{ d=await r.json(); }catch(_){}
+
+ if(!r.ok){
+   throw new Error(d?.error?.message||('HTTP '+r.status));
+ }
+
  const raw=d.candidates?.[0]?.content?.parts?.map(x=>x.text||'').join('')||'';
- const data=JSON.parse(raw);
- if(!Array.isArray(data.items)||data.items.length<2) throw new Error('bad structured output');
+ if(!raw) throw new Error('Gemini returned an empty response');
+
+ let data;
+ try{ data=JSON.parse(raw); }
+ catch(_){ throw new Error('Gemini returned invalid JSON'); }
+
+ if(!Array.isArray(data.items)||data.items.length<2) throw new Error('Gemini returned fewer than 2 foods');
+
  return data;
 }
 function normalizeMealItems(data,target){
@@ -489,7 +510,14 @@ async function sendChat(){
      state.chat=[{who:'user',text:q},{who:'ai',text:ans}];save();
    }
  }catch(e){
-   $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">לא הצלחתי ליצור הצעת כמויות תקינה. נסה שוב.</div>';
+   console.error('CutCoach AI meal error:',e);
+   const detail=String(e?.message||'').toLowerCase();
+   let msg='לא הצלחתי ליצור הצעת כמויות תקינה.';
+   if(detail.includes('api key')||detail.includes('invalid')) msg='מפתח Gemini לא תקין או לא מורשה. בדוק את המפתח בפרופיל.';
+   else if(detail.includes('quota')||detail.includes('resource exhausted')) msg='מכסת Gemini הסתיימה כרגע. נסה שוב מאוחר יותר.';
+   else if(detail.includes('model')) msg='מודל Gemini לא זמין עבור המפתח הזה. בדוק את הגישה למודל.';
+   else msg+=' נסה שוב.';
+   $('chat').innerHTML='<div class="msg user">'+q+'</div><div class="msg ai">'+msg+'</div>';
  }
  $('chatInput').value='';
 }
